@@ -31,17 +31,10 @@ const cyStyle = [
     },
   },
   {
-    selector: 'node:hover',
-    style: {
-      'border-color': '#3b82f6',
-      'border-width': 3,
-    },
-  },
-  {
     selector: 'node.selected',
     style: {
       'background-color': '#eff6ff',
-      'border-color': '#2563eb',
+      'border-color': '#36006B',
       'border-width': 4,
     },
   },
@@ -63,8 +56,8 @@ const cyStyle = [
     selector: 'edge.highlighted',
     style: {
       'width': 3,
-      'line-color': '#3b82f6',
-      'target-arrow-color': '#3b82f6',
+      'line-color': '#36006B',
+      'target-arrow-color': '#36006B',
       'opacity': 1,
     },
   },
@@ -110,9 +103,24 @@ export function GraphCanvas({ onNodeClick, onNodeRightClick }: GraphCanvasProps)
     evt.target.connectedEdges().addClass('highlighted');
   }, []);
 
+  // --- MODIFIED ---
+  // Make mouse-out "selection-aware"
   const handleNodeMouseOut = useCallback((evt: any) => {
-    evt.target.connectedEdges().removeClass('highlighted');
-  }, []);
+    const cy = cyRef.current;
+    if (!cy) return;
+
+    // Get the edges that are part of the permanent selection
+    const selectedNodeElement = cy.getElementById(selectedNode ?? '');
+    const selectedEdges = selectedNodeElement.length > 0 ? selectedNodeElement.connectedEdges() : cy.collection();
+
+    // Loop through the edges of the node we moused-out of
+    evt.target.connectedEdges().forEach((edge: any) => {
+      // Only remove highlight if this edge is NOT part of the permanent selection
+      if (!selectedEdges.contains(edge)) {
+        edge.removeClass('highlighted');
+      }
+    });
+  }, [selectedNode]); // <-- ADDED selectedNode dependency
 
   useEffect(() => {
     if (!containerRef.current || cyRef.current) return;
@@ -120,7 +128,7 @@ export function GraphCanvas({ onNodeClick, onNodeRightClick }: GraphCanvasProps)
     cyRef.current = cytoscape({
       container: containerRef.current,
       style: cyStyle as any,
-      wheelSensitivity: 0.2,
+      // wheelSensitivity: 0.2, // <-- REMOVED
       minZoom: 0.3,
       maxZoom: 3,
       layout: { name: 'preset' },
@@ -139,7 +147,7 @@ export function GraphCanvas({ onNodeClick, onNodeRightClick }: GraphCanvasProps)
         cyRef.current = null;
       }
     };
-  }, [handleNodeTap, handleNodeRightClick, handleNodeMouseOver, handleNodeMouseOut]);
+  }, [handleNodeTap, handleNodeRightClick, handleNodeMouseOver, handleNodeMouseOut]); // handleNodeMouseOut is now stable
   
   useEffect(() => {
     if (!cyRef.current) return;
@@ -182,16 +190,24 @@ export function GraphCanvas({ onNodeClick, onNodeRightClick }: GraphCanvasProps)
     }
   }, [nodes, edges]);
   
+  // --- MODIFIED ---
+  // This effect is now the single source of truth for the "selected" state
   useEffect(() => {
     if (!cyRef.current) return;
     
     const cy = cyRef.current;
+    
+    // 1. Clear all previous node and edge selections
     cy.nodes().removeClass('selected');
+    cy.edges().removeClass('highlighted');
     
     if (selectedNode) {
       const nodeElement = cy.getElementById(selectedNode);
       if (nodeElement.length > 0) {
+        // 2. Add 'selected' class to the node
         nodeElement.addClass('selected');
+        // 3. Add 'highlighted' class to its connected edges
+        nodeElement.connectedEdges().addClass('highlighted');
       }
     }
   }, [selectedNode]);
