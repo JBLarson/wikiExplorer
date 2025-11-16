@@ -4,145 +4,136 @@ import faiss
 import sqlite3
 import math
 from sentence_transformers import SentenceTransformer
+import numpy as np
 import os
 
-# --- 1. CRITICAL FIX for macOS ---
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 app = Flask(__name__)
 CORS(app)
 
-# --- Scoring Weights ---
-# We can tune these. 70% semantic, 30% popularity.
-WEIGHT_SEMANTIC = 0.70
-WEIGHT_POPULARITY = 0.30
-CANDIDATE_POOL_SIZE = 50 # Get 50, re-rank to 7
-RESULTS_TO_RETURN = 7
+# Config
+WEIGHT_SEMANTIC = 0.99
+WEIGHT_POPULARITY = 0.01
+CANDIDATE_POOL_SIZE = 100
+RESULTS_TO_RETURN = 16
 
-# --- Load once at startup ---
-
-print("Loading FAISS index...")
-index = faiss.read_index("../data/embeddings/index.faiss")
-
+# Load resources
+print("Loading index...")
+index = faiss.read_index("data/embeddings/index.faiss")
 try:
-    ivf_index = faiss.downcast_index(index.index) 
-    print("Enabling direct map for reconstruct()...")
-    ivf_index.make_direct_map(True)
-    ivf_index.nprobe = 16 
-    print(f"Index is IndexIDMap(IVF). Set nprobe = {ivf_index.nprobe}")
-except Exception as e:
-    print(f"Index is likely Flat. nprobe/direct_map not applicable. Error: {e}")
+    ivf_index = faiss.downcast_index(index.index)
+    ivf_index.nprobe = 32
+    print(f"IVF index, nprobe={ivf_index.nprobe}")
+except:
+    print("Flat index")
 
-print("Connecting to metadata database...")
-db = sqlite3.connect("../data/embeddings/metadata.db", check_same_thread=False)
-db.row_factory = sqlite3.Row # Allows accessing columns by name
+print("Loading database...")
+db = sqlite3.connect("data/embeddings/metadata.db", check_same_thread=False)
+db.row_factory = sqlite3.Row
 
-print("Loading sentence transformer model...")
+print("Loading model...")
 model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
-
-print("Flask server ready.")
-
-# --- Helper Functions ---
+print("Ready!")
 
 def normalize_popularity(pageviews):
-    """Normalize pageviews using log10 for a smoother score."""
     if pageviews is None or pageviews <= 0:
         return 0.0
-    # Log10(1) = 0. Log10(1,000,000) = 6.
-    # We'll cap the max score at 7 (10M views) to prevent outliers dominating.
     return min(1.0, math.log10(pageviews + 1) / 7.0)
 
 def is_meta_page(title):
-    """Ported from the old JS file to filter out junk pages."""
     lower = title.lower()
-    meta_prefixes = [
-        'wikipedia:', 'template:', 'category:', 'portal:',
-        'help:', 'user:', 'talk:', 'file:', 'list of'
-    ]
-    if any(lower.startswith(p) for p in meta_prefixes):
-        return True
-    if '(disambiguation)' in lower:
-        return True
-    return False
+    bad = ['wikipedia:', 'template:', 'category:', 'portal:', 'help:', 'user:', 
+           'talk:', 'file:', 'list of', 'outline of', 'timeline of', 'history of']
+    return any(lower.startswith(p) for p in bad) or '(disambiguation)' in lower
 
-# ----------------------------
-
-@app.route('/api/related/<path:title>', methods=['GET'])
-def get_related(title):
-    """Get semantically similar AND popular articles"""
+@app.route('/api/related/<path:query>', methods=['GET'])
+def get_related(query):
     cursor = db.cursor()
     
-    lookup_key = title.replace(' ', '_').lower()
+    # Try multiple lookup strategies for exact articles
+    article_id = None
     
-    # --- 1. Get Source Article ID ---
-    cursor.execute(
-        "SELECT article_id FROM articles WHERE lookup_title = ?", 
-        (lookup_key,)
-    )
+    # Strategy 1: Exact match with underscores
+    cursor.execute("SELECT article_id FROM articles WHERE title = ?", (query,))
     row = cursor.fetchone()
+    if row:
+        article_id = int(row['article_id'])
     
-    if not row:
-        return jsonify({"error": "Article not found", "searched_for": [lookup_key]}), 404
+    # Strategy 2: Try with spaces instead of underscores
+    if not article_id:
+        cursor.execute("SELECT article_id FROM articles WHERE title = ?", (query.replace('_', ' '),))
+        row = cursor.fetchone()
+        if row:
+            article_id = int(row['article_id'])
     
-    article_id = row['article_id']
+    # Strategy 3: Case-insensitive search
+    if not article_id:
+        cursor.execute("SELECT article_id FROM articles WHERE LOWER(title) = LOWER(?)", (query,))
+        row = cursor.fetchone()
+        if row:
+            article_id = int(row['article_id'])
     
-    try:
-        embedding = index.reconstruct(int(article_id)).reshape(1, -1)
-    except Exception as e:
-        return jsonify({"error": f"Embedding reconstruction failed: {str(e)}"}), 404
+    if article_id:
+        # Found exact article - get its embedding
+        try:
+            embedding = index.reconstruct(article_id).reshape(1, -1)
+            exclude_id = article_id
+        except:
+            # Fallback to encoding if reconstruction fails
+            embedding = model.encode([query], normalize_embeddings=True, convert_to_numpy=True).astype(np.float32)
+            exclude_id = None
+    else:
+        # No exact match - semantic search
+        try:
+            embedding = model.encode([query], normalize_embeddings=True, convert_to_numpy=True).astype(np.float32)
+            exclude_id = None
+        except:
+            return jsonify([])
     
-    # --- 2. Get Semantic Candidates (Candidate Pool) ---
-    # Get 1 extra because the first result is always the query article itself
-    distances, indices = index.search(embedding, CANDIDATE_POOL_SIZE + 1)
+    # Search
+    search_size = CANDIDATE_POOL_SIZE + 1 if exclude_id else CANDIDATE_POOL_SIZE
+    distances, indices = index.search(embedding, search_size)
     
-    # --- 3. Fetch Signals & Re-rank ---
-    ranked_results = []
+    # Get candidates
+    candidate_ids = []
+    candidate_dists = []
+    for i, idx in enumerate(indices[0]):
+        idx_int = int(idx)
+        if idx_int >= 0 and idx_int != exclude_id:
+            candidate_ids.append(idx_int)
+            candidate_dists.append(distances[0][i])
     
-    # Get the article IDs for our candidates, skipping the first (self)
-    candidate_ids = [int(idx) for idx in indices[0][1:]]
-    # Get their distances (scores)
-    candidate_dists = distances[0][1:]
+    if not candidate_ids:
+        return jsonify([])
     
-    # Placeholders for the SQL query
-    placeholders = ','.join('?' for _ in candidate_ids)
-    
-    # Fetch all candidate signals in ONE query
+    # Get metadata
+    placeholders = ','.join('?' * len(candidate_ids))
     cursor.execute(
-        f"""
-        SELECT article_id, title, pageviews 
-        FROM articles 
-        WHERE article_id IN ({placeholders})
-        """, 
+        f"SELECT article_id, title, pageviews FROM articles WHERE article_id IN ({placeholders})",
         candidate_ids
     )
     
-    # Create a lookup map for the results
-    candidate_data = {row['article_id']: row for row in cursor.fetchall()}
+    # Build results
+    results = []
+    data_map = {r['article_id']: r for r in cursor.fetchall()}
     
-    # Now, re-rank
     for i, cand_id in enumerate(candidate_ids):
-        data = candidate_data.get(cand_id)
-        
-        # Skip if no data or if it's a meta page
+        data = data_map.get(cand_id)
         if not data or is_meta_page(data['title']):
             continue
-            
-        # --- 4. Calculate Final Score ---
-        # Assuming vectors are normalized, (1 - distance) is a good similarity score
-        score_semantic = (1 - candidate_dists[i]) 
-        score_popularity = normalize_popularity(data['pageviews'])
         
-        final_score = (score_semantic * WEIGHT_SEMANTIC) + (score_popularity * WEIGHT_POPULARITY)
+        semantic = 1 - candidate_dists[i]
+        popularity = normalize_popularity(data['pageviews'])
+        final_score = (semantic * WEIGHT_SEMANTIC) + (popularity * WEIGHT_POPULARITY)
         
-        ranked_results.append({
+        results.append({
             "title": data['title'],
-            "score": int(final_score * 100) # Convert to 0-100 score
+            "score": int(final_score * 100)
         })
-
-    # Sort by the new final score
-    ranked_results.sort(key=lambda x: x['score'], reverse=True)
     
-    return jsonify(ranked_results[:RESULTS_TO_RETURN])
+    results.sort(key=lambda x: x['score'], reverse=True)
+    return jsonify(results[:RESULTS_TO_RETURN])
 
 if __name__ == '__main__':
-    app.run(port=5001, debug=True)
+    app.run(port=5001, debug=False, threaded=True)
