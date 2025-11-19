@@ -102,10 +102,12 @@ function AppContent() {
         <div className="flex items-center justify-between h-16 px-4 md:px-6 border-b border-border">
           {/* Logo/Title (subtle) */}
           <div className="flex items-center gap-2">
-            <img src={weLogo} alt="wikiExplorer Logo" className="w-16 h-16" />
-            <h1 className="text-lg font-semibold text-text hidden md:block">
-              wikiExplorer
-            </h1>
+            <a href="/" className="flex items-center">
+              <img src={weLogo} alt="wikiExplorer Logo" className="w-16 h-16" />
+              <h1 className="text-lg font-semibold text-text hidden md:block">
+                wikiExplorer
+              </h1>
+            </a>
           </div>
           
           {/* Centered Search Bar */}

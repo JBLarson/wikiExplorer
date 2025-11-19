@@ -7,16 +7,7 @@ export interface WikiArticle {
 
 export interface WikiLink {
   title: string;
-  score: number;
-}
-
-// UPDATED: Now includes the graph connection count
-export interface WikiLinkSignals {
-  title: string;
-  pageviews: number;
-  backlinks: number;
-  extract: string;
-  graphConnections: number; // <-- ADDED
+  score: number; // 0-100 from your backend
 }
 
 export interface GraphNode {
