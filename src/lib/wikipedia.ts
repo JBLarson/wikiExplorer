@@ -1,65 +1,57 @@
 import type { WikiArticle, WikiLink } from '../types';
 
-// const WIKI_API_BASE = 'https://en.wikipedia.org/api/rest_v1';
-// const LOCAL_API = 'http://localhost:5001/api'; // Your Python backend
-
-// --- --------------------------------- ---
-// ---            DEMO LOGIC             ---
-// --- --------------------------------- ---
-// --- This file is now in "demo mode"   ---
-// --- It does not call any external APIs ---
-// --- --------------------------------- ---
-
+// Public Wikipedia API for content (images, extracts)
+const WIKI_API_BASE = 'https://en.wikipedia.org/api/rest_v1/page/summary';
 
 /**
- * [DEMO] Fetches a mock article summary
+ * Fetches article content (image, extract) from Public Wikipedia API
  */
 export async function fetchArticleSummary(title: string): Promise<WikiArticle> {
-  console.log(`[DEMO] Fetching summary for: ${title}`);
-  
-  // Simulate network latency
-  await new Promise(resolve => setTimeout(resolve, 300));
+  const encodedTitle = encodeURIComponent(title.replace(/ /g, '_'));
+  const response = await fetch(`${WIKI_API_BASE}/${encodedTitle}`);
 
-  const demoArticle: WikiArticle = {
-    title: title,
-    extract: `This is a **demo extract** for "${title}". The real backend is busy processing terabytes of data. This dummy content allows you to test the frontend UI, click on nodes, and see the graph expand.`,
-    // Use a placeholder image service
-    thumbnail: `https://via.placeholder.com/300x200.png?text=${encodeURIComponent(title)}`,
-    // Keep the real URL so the "Read Full Article" button still works
-    url: `https://en.wikipedia.org/wiki/${encodeURIComponent(title.replace(/ /g, '_'))}`,
+  if (!response.ok) {
+    throw new Error(`Failed to fetch article summary for ${title}`);
+  }
+
+  const data = await response.json();
+
+  return {
+    title: data.title,
+    extract: data.extract,
+    thumbnail: data.thumbnail?.source,
+    url: data.content_urls?.desktop?.page || `https://en.wikipedia.org/wiki/${encodedTitle}`,
   };
-
-  return demoArticle;
 }
 
 /**
- * [DEMO] Fetches a mock list of related articles
+ * Fetches semantically related links from YOUR Local Python Backend
  */
 export async function fetchArticleLinks(
   title: string,
   existingNodeLabels: string[]
 ): Promise<WikiLink[]> {
-  console.log(`[DEMO] Fetching related links for: ${title}`);
-  console.log(`[DEMO] Excluding nodes:`, existingNodeLabels);
+  // Call your local Flask server via the Vite proxy
+  // Note: Your server expects underscores for titles
+  const query = encodeURIComponent(title.replace(/ /g, '_'));
+  
+  // We request k=20 to have a buffer for filtering duplicates
+  const response = await fetch(`/api/related/${query}?k=20`);
 
-  // Simulate network latency (longer for "heavier" query)
-  await new Promise(resolve => setTimeout(resolve, 600));
-
-  const allDemoLinks: WikiLink[] = [];
-  const numLinks = 7; // Generate 7 demo links
-
-  for (let i = 1; i <= numLinks; i++) {
-    allDemoLinks.push({
-      title: `Demo Link ${i} (from ${title})`,
-      score: Math.floor(Math.random() * 40) + 60, // Random score 60-100
-    });
+  if (!response.ok) {
+    console.error('Local embedding server error');
+    return [];
   }
 
-  // The original function filtered *after* the fetch. We do the same.
-  const filteredLinks = allDemoLinks.filter(
-    link => !existingNodeLabels.includes(link.title)
-  );
-  
-  console.log(`[DEMO] Returning ${filteredLinks.length} new links.`);
-  return filteredLinks;
+  const data = await response.json();
+
+  // Map backend response to frontend type
+  // The backend returns { title: string, score: number }
+  const newLinks: WikiLink[] = data.map((item: any) => ({
+    title: item.title.replace(/_/g, ' '), // Convert DB underscores back to spaces for UI
+    score: item.score
+  }));
+
+  // Filter out nodes that are already on the canvas
+  return newLinks.filter(link => !existingNodeLabels.includes(link.title));
 }
