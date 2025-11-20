@@ -3,6 +3,8 @@ node_modules
 venv
 
 metadata.db
+*.db-shm
+*.db-wal
 
 index.faiss
 
