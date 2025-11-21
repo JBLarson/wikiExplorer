@@ -36,7 +36,7 @@ export async function fetchArticleLinks(
   const query = encodeURIComponent(title.replace(/ /g, '_'));
   
   // We request k=20 to have a buffer for filtering duplicates
-  const response = await fetch(`/api/related/${query}?k=20`);
+  const response = await fetch(`/api/related/${query}?k=7`);
 
   if (!response.ok) {
     console.error('Local embedding server error');
