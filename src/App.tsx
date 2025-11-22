@@ -42,13 +42,18 @@ function AppContent() {
   const loadArticle = useCallback(async (title: string, depth: number = 0) => {
     setLoading(true);
     setError(null);
+    
+    // Prepare context for the backend so it knows what we already have
     const existingNodeLabels = nodes.map(n => n.label);
+    const existingNodeIds = nodes.map(n => n.id); 
 
     try {
+      // 1. Fetch Article Metadata
       const article = await fetchArticleSummary(title);
       setSelectedArticle(article);
       const nodeId = title.replace(/\s+/g, '_');
 
+      // 2. Add the Central Node
       addNode({
         id: nodeId,
         label: title,
@@ -63,8 +68,11 @@ function AppContent() {
         setRootNode(nodeId);
       }
 
-      const links = await fetchArticleLinks(title, existingNodeLabels, 7);
+      // 3. Fetch Semantic Links & Cross Edges
+      // We pass existingNodeIds so the backend can calculate the mesh
+      const { links, crossEdges } = await fetchArticleLinks(title, existingNodeLabels, existingNodeIds, 7);
 
+      // 4. Add New Nodes (The "Star" expansion)
       for (const link of links) {
         const linkNodeId = link.title.replace(/\s+/g, '_');
         addNode({
@@ -77,6 +85,8 @@ function AppContent() {
           },
           depth: depth + 1,
         });
+        
+        // Link from Parent -> Child
         addEdge({
           id: `${nodeId}-${linkNodeId}`,
           source: nodeId,
@@ -84,6 +94,20 @@ function AppContent() {
           score: link.score,
         });
       }
+
+      // 5. Add Cross Edges (The "Mesh" connectivity)
+      // These connect the new children to each other, or to existing nodes in the graph
+      if (crossEdges && crossEdges.length > 0) {
+        for (const edge of crossEdges) {
+          addEdge({
+            id: `cross-${edge.source}-${edge.target}`,
+            source: edge.source, // Backend ensures this is the ID string (underscored)
+            target: edge.target,
+            score: edge.score
+          });
+        }
+      }
+
     } catch (error) {
       console.error('Error loading article:', error);
       setError(error instanceof Error ? error.message : 'Failed to load article.');
