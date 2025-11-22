@@ -14,7 +14,7 @@ A production-grade, FAANG-quality web application for exploring Wikipedia throug
 
 wikiExplorer transforms Wikipedia into an interactive knowledge graph, powered by vector embeddings and semantic search. Search any topic and watch as related concepts branch out in a beautiful, physics-based visualization.
 
-**🔗 Backend Required:** [github.com/jblarson/wikiExplorer](https://github.com/jblarson/wikiExplorer)
+**🔗 Backend Required:** [github.com/jblarson/wikiVector](https://github.com/jblarson/wikiVector)
 
 ## ✨ Features
 
