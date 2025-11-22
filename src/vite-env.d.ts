@@ -12,5 +12,9 @@ declare module 'three-spritetext' {
     fontSize: number;
     strokeWidth: number;
     strokeColor: string;
+    // Added properties for styling
+    backgroundColor: string;
+    padding: number;
+    borderRadius: number;
   }
 }

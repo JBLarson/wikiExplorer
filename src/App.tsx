@@ -42,14 +42,11 @@ function AppContent() {
   const loadArticle = useCallback(async (title: string, depth: number = 0) => {
     setLoading(true);
     setError(null);
-
     const existingNodeLabels = nodes.map(n => n.label);
 
     try {
       const article = await fetchArticleSummary(title);
       setSelectedArticle(article);
-      
-      // FIX: Replaced hallucinated variable name
       const nodeId = title.replace(/\s+/g, '_');
 
       addNode({
@@ -99,8 +96,6 @@ function AppContent() {
     const node = nodes.find(n => n.id === nodeId);
     if (!node) return;
 
-    const hasChildren = edges.some(e => e.source === nodeId || e.target === nodeId);
-
     setLoading(true);
     setSelectedArticle(null);
     fetchArticleSummary(node.label)
@@ -109,14 +104,8 @@ function AppContent() {
       .finally(() => setLoading(false));
 
     setSelectedNode(nodeId);
-
     loadArticle(node.label, node.depth);
-  }, [nodes, edges, loadArticle, setSelectedNode, setLoading]);
-
-  const handleNodeRightClick = useCallback((nodeId: string) => {
-    // FIX: Replaced hallucinated ZSnodeId
-    console.log('Right click:', nodeId);
-  }, []);
+  }, [nodes, loadArticle, setSelectedNode, setLoading]);
 
   const handleSearch = useCallback((query: string) => {
     clearGraph();
@@ -125,72 +114,82 @@ function AppContent() {
     loadArticle(query, 0);
   }, [clearGraph, loadArticle]);
 
-  const handleClearError = useCallback(() => setError(null), []);
-
   return (
-    <div className="flex flex-col h-screen bg-abyss font-sans overflow-hidden text-gray-100">
-      {/* Header Overlay */}
-      <header className="absolute top-0 left-0 right-0 z-20 pointer-events-none">
-        <div className="flex items-center justify-between h-20 px-6 bg-gradient-to-b from-abyss to-transparent">
-          <div className="flex items-center gap-3 pointer-events-auto">
-            <div className="relative">
-              <img src={weLogo} alt="wikiExplorer" className="w-12 h-12 opacity-90 hover:opacity-100 transition-opacity" />
-              <div className="absolute inset-0 bg-brand-accent/20 blur-xl rounded-full -z-10"></div>
+    <div className="flex flex-col h-screen w-screen bg-abyss font-sans text-gray-100 overflow-hidden">
+      
+      {/* Top Overlay Navigation */}
+      <div className="absolute top-0 left-0 w-full z-50 pointer-events-none">
+        <div className="flex items-center justify-between p-6 bg-gradient-to-b from-abyss via-abyss/80 to-transparent">
+          
+          {/* Logo Area */}
+          <div className="flex items-center gap-4 pointer-events-auto">
+            <div className="relative group">
+              <div className="absolute -inset-2 bg-brand-primary/20 rounded-full blur-xl opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+              <img src={weLogo} alt="wikiExplorer" className="relative w-10 h-10 opacity-90" />
             </div>
             <div>
-              <h1 className="text-lg font-bold text-white tracking-tight">wikiExplorer 3D</h1>
+              <h1 className="text-lg font-bold tracking-tight text-white">wikiExplorer</h1>
               <div className="flex items-center gap-2">
-                {backendOnline === false ? (
-                  <span className="text-[10px] text-red-400 font-medium flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></span>
-                    Offline
-                  </span>
-                ) : (
-                  <span className="text-[10px] text-brand-400 font-medium flex items-center gap-1">
-                     <span className="w-1.5 h-1.5 rounded-full bg-brand-400 shadow-[0_0_5px_rgba(56,189,248,0.8)]"></span>
-                     Connected
-                  </span>
-                )}
+                <div className={`w-1.5 h-1.5 rounded-full ${backendOnline ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]' : 'bg-red-500 animate-pulse'}`} />
+                <span className="text-[10px] font-medium uppercase tracking-wider text-gray-500">
+                  {backendOnline ? 'System Online' : 'Disconnected'}
+                </span>
               </div>
             </div>
           </div>
 
-          <div className="flex-1 flex justify-center px-8 max-w-2xl mx-auto pointer-events-auto">
-            <div className="w-full shadow-2xl shadow-abyss">
-              <SearchBar onSearch={handleSearch} isLoading={isLoading} />
-            </div>
+          {/* Center Search */}
+          <div className="flex-1 max-w-2xl px-8 pointer-events-auto">
+            <SearchBar onSearch={handleSearch} isLoading={isLoading} />
           </div>
 
-          <div className="text-sm text-gray-400 text-right min-w-[120px] pointer-events-auto">
-            <span className="font-bold text-white tabular-nums">{nodes.length}</span>
-            <span className="ml-1 text-gray-600 text-xs uppercase tracking-wider">nodes</span>
-          </div>
+          {/* Right Placeholder (Balance) */}
+          <div className="w-[140px]" />
         </div>
-      </header>
+      </div>
 
+      {/* Error Toast */}
       {error && (
-        <div className="absolute top-24 left-1/2 -translate-x-1/2 z-50 bg-red-950/90 border border-red-500/50 px-6 py-3 rounded-xl shadow-2xl backdrop-blur-md">
-          <p className="text-sm text-red-200 font-medium">{error}</p>
-          <button onClick={handleClearError} className="ml-4 text-white underline">Dismiss</button>
+        <div className="absolute top-28 left-1/2 -translate-x-1/2 z-50 animate-slide-up pointer-events-auto">
+          <div className="flex items-center gap-3 px-6 py-3 bg-red-950/90 backdrop-blur border border-red-500/30 rounded-xl shadow-2xl">
+            <span className="text-sm font-medium text-red-200">{error}</span>
+            <button onClick={() => setError(null)} className="text-red-400 hover:text-white transition-colors">
+              <XMarkIcon className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       )}
 
-      <div className="flex-1 flex overflow-hidden relative">
-        <div className="flex-1 relative bg-abyss">
-          <GraphCanvas onNodeClick={handleNodeClick} onNodeRightClick={handleNodeRightClick} />
+      {/* Main Workspace */}
+      <div className="flex-1 flex overflow-hidden relative z-0">
+        <div className="flex-1 relative">
+          <GraphCanvas onNodeClick={handleNodeClick} />
           
-          {isLoading && nodes.length === 0 && (
-            <div className="absolute inset-0 bg-abyss/60 backdrop-blur-sm flex items-center justify-center z-10 pointer-events-none">
-              <div className="text-center">
-                <div className="w-16 h-16 border-4 border-abyss-highlight border-t-brand-accent rounded-full animate-spin mx-auto mb-4 shadow-glow" />
-                <p className="text-sm font-medium text-brand-200 tracking-wide">Initializing 3D Environment...</p>
+          {/* Empty State / Initial Loading */}
+          {nodes.length === 0 && !isLoading && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+              <div className="text-center space-y-4">
+                <div className="inline-flex items-center justify-center w-20 h-20 rounded-3xl bg-abyss-surface border border-abyss-highlight shadow-2xl mb-4">
+                  <img src={weLogo} alt="" className="w-10 h-10 opacity-50 grayscale" />
+                </div>
+                <h2 className="text-2xl font-bold text-gray-700">Ready to Explore</h2>
+                <p className="text-gray-600">Enter a topic above to generate the graph</p>
               </div>
             </div>
           )}
         </div>
-        <Sidebar selectedArticle={selectedArticle} isLoading={isLoading && selectedArticle === null} />
+        <Sidebar selectedArticle={selectedArticle} isLoading={isLoading && !selectedArticle} />
       </div>
     </div>
+  );
+}
+
+// Helper for Icon
+function XMarkIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+    </svg>
   );
 }
 

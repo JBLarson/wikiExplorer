@@ -1,4 +1,4 @@
-/** @type {import('tailwindcss').Config} */
+/** @type {import('tailwindcss').Config}VX */
 import defaultTheme from 'tailwindcss/defaultTheme';
 
 export default {
@@ -12,57 +12,39 @@ export default {
         sans: ['Inter', ...defaultTheme.fontFamily.sans],
       },
       colors: {
-        // Custom Dark Palette
+        // The "Void Navy" Palette
         abyss: {
-          DEFAULT: '#050511', // Main background (Near black navy)
-          surface: '#0f111a', // Panel background
-          border: '#1f2235',  // Border color
-          highlight: '#2d314d',
+          DEFAULT: '#02020B', // The deepest navy, almost black
+          surface: '#090914', // Secondary panels
+          border: '#151528',  // Subtle borders
+          hover: '#1C1C33',   // Interactive states
         },
+        // Accent gradients (Purple/Indigo)
         brand: {
-          50: '#f0f9ff',
-          100: '#e0f2fe',
-          200: '#bae6fd',
-          300: '#7dd3fc',
-          400: '#38bdf8',
-          500: '#0ea5e9',
-          600: '#0284c7',
-          700: '#0369a1',
-          800: '#075985',
-          900: '#0c4a6e',
-          950: '#082f49',
-          accent: '#6366f1', // Indigo/Purple accent
-          glow: '#818cf8',
-        },
+          primary: '#6366f1',  // Indigo 500
+          glow: '#818cf8',     // Indigo 400
+          dim: '#3730a3',      // Indigo 800
+        }
       },
-      boxShadow: {
-        'glow': '0 0 20px rgba(99, 102, 241, 0.15)',
-        'glow-strong': '0 0 30px rgba(99, 102, 241, 0.3)',
+      animation: {
+        'fade-in': 'fadeIn 0.5s ease-out forwards',
+        'slide-up': 'slideUp 0.4s ease-out forwards',
+        'pulse-slow': 'pulse 4s cubic-bezier(0.4, 0, 0.6, 1) infinite',
       },
       keyframes: {
         fadeIn: {
           '0%': { opacity: '0' },
           '100%': { opacity: '1' },
         },
-        slideInUp: {
-          '0%': { opacity: '0',QX: 'translateY(8px)' },
+        slideUp: {
+          '0%': { opacity: '0', transform: 'translateY(10px)' },
           '100%': { opacity: '1', transform: 'translateY(0)' },
         },
-        slideInLeft: {
-            '0%': { opacity: '0', transform: 'translateX(20px)' },
-            '100%': { opacity: '1', transform: 'translateX(0)' },
-        },
-        pulse_slow: {
-          '0%, 100%': { opacity: '1' },
-          '50%': { opacity: '0.5' },
-        }
       },
-      animation: {
-        fadeIn: 'fadeIn 0.3s ease-out',
-        slideInUp: 'slideInUp 0.4s ease-out',
-        slideInLeft: 'slideInLeft 0.4s ease-out',
-        pulse_slow: 'pulse_slow 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
-      },
+      boxShadow: {
+        'glass': '0 8px 32px 0 rgba(0, 0, 0, 0.37)',
+        'glow': '0 0 20px rgba(99, 102, 241, 0.3)',
+      }
     },
   },
   plugins: [],

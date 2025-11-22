@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { MagnifyingGlassIcon } from '@heroicons/react/24/outline';
+import { MagnifyingGlassIcon, XMarkIcon } from '@heroicons/react/24/outline';
 
 interface SearchBarProps {
   onSearch: (query: string) => void;
@@ -7,7 +7,7 @@ interface SearchBarProps {
   isLoading?: boolean;
 }
 
-export function SearchBar({ onSearch, placeholder = 'Explore the graph...', isLoading = false }: SearchBarProps) {
+export function SearchBar({ onSearch, placeholder = 'Search the knowledge graph...', isLoading = false }: SearchBarProps) {
   const [query, setQuery] = useState('');
   const [isFocused, setIsFocused] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -18,12 +18,8 @@ export function SearchBar({ onSearch, placeholder = 'Explore the graph...', isLo
         e.preventDefault();
         inputRef.current?.focus();
       }
-      
-      if (e.key === 'Escape' && document.activeElement === inputRef.current) {
-        inputRef.current?.blur();
-      }
+      if (e.key === 'Escape') inputRef.current?.blur();
     };
-    
     window.addEventListener('keydown', handleKeyPress);
     return () => window.removeEventListener('keydown', handleKeyPress);
   }, []);
@@ -32,79 +28,69 @@ export function SearchBar({ onSearch, placeholder = 'Explore the graph...', isLo
     e.preventDefault();
     if (query.trim() && !isLoading) {
       onSearch(query.trim());
+      inputRef.current?.blur();
     }
   };
   
-  const handleClear = () => {
-    setQuery('');
-    inputRef.current?.focus();
-  };
-  
   return (
-    <form onSubmit={handleSubmit} className="relative w-full group z-50">
-      {/* Search Icon */}
+    <form onSubmit={handleSubmit} className="relative w-full group z-50 max-w-2xl mx-auto">
       <div className={`
-        absolute left-4 top-1/2 -translate-y-1/2 transition-colors duration-300
-        ${isFocused ? 'text-brand-accent' : 'text-gray-500'}
+        relative flex items-center
+        bg-abyss-surface/90 backdrop-blur-xl
+        border transition-all duration-300 ease-out rounded-2xl
+        ${isFocused 
+          ? 'border-brand-primary/50 shadow-glow ring-1 ring-brand-primary/20' 
+          : 'border-abyss-border shadow-glass'
+        }
       `}>
-        <MagnifyingGlassIcon className="w-5 h-5" />
-      </div>
-      
-      {/* Input Field */}
-      <input
-        ref={inputRef}
-        type="text"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        onFocus={() => setIsFocused(true)}
-        onBlur={() => setIsFocused(false)}
-        placeholder={placeholder}
-        disabled={isLoading}
-        className={`
-          w-full h-12 pl-12 pr-24 py-3
-          bg-abyss-surface border rounded-xl
-          text-gray-100 placeholder-gray-600
-          transition-all duration-300 ease-out
-          focus:outline-none
-          ${isFocused 
-            ? 'border-brand-accent/50 ring-4 ring-brand-accent/10 shadow-glow' 
-            : 'border-abyss-border hover:border-abyss-highlight'
-          }
-          ${isLoading ? 'opacity-60 cursor-not-allowed' : ''}
-        `}
-      />
-
-      {/* Clear Button */}
-      {query && !isLoading && (
-        <button
-          type="button"
-          onClick={handleClear}
-          className="absolute right-20 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 transition-colors"
-        >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
-      )}
-
-      {/* Loading Spinner */}
-      {isLoading && (
-        <div className="absolute right-20 top-1/2 -translate-y-1/2">
-          <div className="w-5 h-5 border-2 border-brand-accent border-t-transparentKf rounded-fullRK animate-spin" />
+        {/* Icon */}
+        <div className="pl-4 text-gray-500">
+          {isLoading ? (
+            <div className="w-5 h-5 rounded-full border-2 border-brand-primary border-t-transparent animate-spin" />
+          ) : (
+            <MagnifyingGlassIcon className={`w-5 h-5 transition-colors ${isFocused ? 'text-brand-glow' : ''}`} />
+          )}
         </div>
-      )}
-      
-      {/* Keyboard Shortcut Hint */}
-      <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none">
-        <kbd className={`
-          px-2 py-1 text-xs font-mono font-semibold
-          bg-abyss-border text-gray-400 rounded
-          border border-abyss-highlight
-          transition-all duration-200
-          ${isFocused ? 'opacity-0 scale-95' : 'opacity-100 scale-100'}
-        `}>
-          /
-        </kbd>
+
+        {/* Input */}
+        <input
+          ref={inputRef}
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onFocus={() => setIsFocused(true)}
+          onBlur={() => setIsFocused(false)}
+          placeholder={placeholder}
+          disabled={isLoading}
+          className="
+            w-full h-14 pl-3 pr-12
+            bg-transparent border-none outline-none
+            text-gray-100 placeholder-gray-600
+            text-base font-medium
+          "
+        />
+
+        {/* Right Actions */}
+        <div className="absolute right-4 flex items-center gap-2">
+          {query && !isLoading && (
+            <button
+              type="button"
+              onClick={() => { setQuery(''); inputRef.current?.focus(); }}
+              className="text-gray-500 hover:text-gray-300 transition-colors"
+            >
+              <XMarkIcon className="w-5 h-5" />
+            </button>
+          )}
+          
+          <div className={`
+            hidden md:flex items-center justify-center h-6 px-2
+            bg-abyss-border rounded border border-abyss-highlight
+            text-xs text-gray-500 font-mono transition-opacity duration-200
+            ${isFocused ? 'opacity-0' : 'opacity-100'}
+          `}>
+            /
+          </div>
+        </div>
       </div>
     </form>
   );

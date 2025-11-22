@@ -10,51 +10,15 @@ interface SidebarProps {
 function SkeletonLoader() {
   return (
     <div className="p-6 animate-pulse space-y-6">
-      {/* Title Skeleton */}
       <div className="space-y-3">
         <div className="h-8 bg-abyss-border rounded-lg w-3/4"></div>
         <div className="h-4 bg-abyss-border rounded w-1/2"></div>
       </div>
-      
-      {/* Thumbnail Skeleton */}
       <div className="h-48 bg-abyss-border rounded-xl w-full"></div>
-      
-      {/* Extract Skeleton */}
-      <div className="space-y-3">
-        <div className="h-4 bg-abyss-border rounded w-full"></div>
-        <div className="h-4 bg-abyss-border rounded w-full"></div>
-        <div className="h-4 bg-abyss-border rounded w-5/6"></div>
-        <div className="h-4 bg-abyss-border rounded w-3/4"></div>
-        <div className="h-4 bg-abyss-border rounded w-2/3"></div>
-      </div>
-    </div>
-  );
-}
-
-function EmptyState() {
-  return (
-    <div className="flex flex-col items-center justify-center h-full text-center p-8 animate-fadeIn">
-      {/* Icon */}
-      <div className="w-20 h-20 bg-abyss-border/50 rounded-2xl flex items-center justify-center mb-6 ring-1 ring-abyss-highlight">
-        <svg className="w-10 h-10 text-brand-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M3.055 11H5a7 7 0 0114 0h1.945"></path>
-        </svg>
-      </div>
-      
-      {/* Text */}
-      <h3 className="text-xl font-bold text-white mb-2">
-        Deep Exploration
-      </h3>
-      <p className="text-sm text-gray-400 max-w-xs leading-relaxed">
-        Select a node or search for a topic to begin your journey through the knowledge graph.
-      </p>
-      
-      {/* Hint */}
-      <div className="mt-8 p-4 bg-abyss-border/30 rounded-lg border border-brand-accent/20">
-        <p className="text-xs text-brand-300 font-medium">
-          💡 Try: "Neural Networks", "Dark Matter", or "Renaissance Art"
-        </p>
+      <div className="space-y-2">
+        {[1, 2, 3, 4, 5].map(i => (
+          <div key={i} className="h-3 bg-abyss-border rounded w-full opacity-60"></div>
+        ))}
       </div>
     </div>
   );
@@ -62,97 +26,83 @@ function EmptyState() {
 
 export function Sidebar({ selectedArticle, isLoading }: SidebarProps) {
   const { nodes, edges, rootNode } = useGraphStore();
-  
   const rootNodeData = nodes.find(n => n.id === rootNode);
-  
+
   return (
-    <div className="w-96 h-full bg-abyss-surface border-l border-abyss-border flex flex-col shadow-2xl z-30">
-      {/* Article Content Section */}
+    <div className="w-96 h-full bg-abyss-surface/80 backdrop-blur-xl border-l border-abyss-border flex flex-col shadow-glass z-30 text-gray-100">
+      
+      {/* Content Area */}
       <div className="flex-1 overflow-y-auto custom-scrollbar">
         {isLoading ? (
           <SkeletonLoader />
         ) : selectedArticle ? (
-          <div className="p-6 animate-slideInLeft space-y-6">
-            {/* Title */}
+          <div className="p-6 animate-fade-in space-y-6">
+            
+            {/* Header */}
             <div className="space-y-2">
-              <h2 className="text-2xl font-bold text-white leading-tight tracking-tight">
+              <h2 className="text-2xl font-bold text-white leading-tight">
                 {selectedArticle.title}
               </h2>
               {rootNodeData && selectedArticle.title === rootNodeData.label && (
-                <span className="inline-flex items-center px-2.5 py-0.5 bg-brand-accent/20 text-brand-300 text-xs font-medium rounded-full border border-brand-accent/30">
-                  Root Node
+                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-brand-primary/10 text-brand-glow border border-brand-primary/20">
+                  Root Topic
                 </span>
               )}
             </div>
-            
-            {/* Thumbnail */}
+
+            {/* Image */}
             {selectedArticle.thumbnail && (
-              <div className="relative overflow-hidden rounded-xl border border-abyss-border group bg-abyss-black">
+              <div className="relative aspect-video rounded-xl overflow-hidden border border-abyss-border group bg-black">
                 <img 
                   src={selectedArticle.thumbnail} 
                   alt={selectedArticle.title} 
-                  className="w-full h-auto object-cover transition-transform duration-500 group-hover:scale-105 opacity-90 group-hover:opacity-100" 
+                  className="w-full h-full object-contain transition-transform duration-700 group-hover:scale-105" 
                 />
-                <div className="absolute inset-0 ring-1 ring-inset ring-white/10 rounded-xl pointer-events-none"></div>
               </div>
             )}
-            
+
             {/* Extract */}
-            <div className="prose prose-sm prose-invert max-w-none">
-              <p className="text-gray-300 leading-relaxed">
-                {selectedArticle.extract}
-              </p>
+            <div className="prose prose-invert prose-sm max-w-none text-gray-300 leading-relaxed">
+              <p>{selectedArticle.extract}</p>
             </div>
-            
-            {/* Action Button */}
+
+            {/* CTA */}
             <a 
               href={selectedArticle.url} 
               target="_blank" 
               rel="noopener noreferrer" 
-              className="
-                inline-flex items-center gap-2 px-4 py-3 w-full
-                bg-brand-accent/10 hover:bg-brand-accent/20
-                text-brand-300 text-sm font-semibold rounded-xl
-                border border-brand-accent/30 hover:border-brand-accent/50
-                transition-all duration-200
-                group
-              "
+              className="flex items-center justify-center gap-2 w-full px-4 py-3 bg-abyss-border hover:bg-abyss-hover text-brand-glow rounded-xl border border-abyss-highlight transition-all duration-200 group"
             >
-              <span className="flex-1 text-center group-hover:text-white transition-colors">Read Full Article</span>
+              <span className="text-sm font-semibold">Read on Wikipedia</span>
               <ArrowTopRightOnSquareIcon className="w-4 h-4 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
             </a>
           </div>
         ) : (
-          <EmptyState />
+          <div className="h-full flex flex-col items-center justify-center p-8 text-center opacity-60">
+            <div className="w-16 h-16 rounded-2xl bg-abyss-border flex items-center justify-center mb-4 border border-abyss-highlight">
+              <LinkIcon className="w-8 h-8 text-gray-500" />
+            </div>
+            <h3 className="text-lg font-medium text-white mb-2">Knowledge Graph</h3>
+            <p className="text-sm text-gray-400">Select a node to view details</p>
+          </div>
         )}
       </div>
-      
-      {/* Stats Footer Section */}
-      <div className="flex-shrink-0 border-t border-abyss-border bg-abyss-surface/50 backdrop-blur">
-        <div className="p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <ChartBarIcon className="w-4 h-4 text-brand-400" />
-            <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Graph Intelligence</h3>
+
+      {/* Footer Stats */}
+      <div className="flex-shrink-0 border-t border-abyss-border bg-abyss-surface p-6">
+        <div className="flex items-center gap-2 mb-4 text-brand-glow">
+          <ChartBarIcon className="w-4 h-4" />
+          <span className="text-xs font-bold uppercase tracking-widest">Graph Metrics</span>
+        </div>
+        
+        <div className="grid grid-cols-2 gap-4">
+          <div className="bg-abyss rounded-lg p-3 border border-abyss-border">
+            <div className="text-xs text-gray-500 mb-1">Nodes Loaded</div>
+            <div className="text-xl font-bold text-white tabular-nums">{nodes.length}</div>
           </div>
-          
-          <div className="grid grid-cols-2 gap-3">
-            {/* Nodes */}
-            <div className="p-3 bg-abyss rounded-lg border border-abyss-border">
-              <dt className="text-xs text-gray-500 mb-1">Nodes</dt>
-              <dd className="text-lg font-bold text-white tabular-nums flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-brand-accent shadow-[0_0_8px_rgba(99,102,241,0.8)]"></span>
-                {nodes.length}
-              </dd>
-            </div>
-            
-            {/* Edges */}
-            <div className="p-3 bg-abyss rounded-lg border border-abyss-border">
-              <dt className="text-xs text-gray-500 mb-1">Connections</dt>
-              <dd className="text-lg font-bold text-white tabular-nums flex items-center gap-2">
-                <LinkIcon className="w-3 h-3 text-gray-600" />
-                {edges.length}
-              </dd>
-            </div>
+          <div className="bg-abyss rounded-lg p-3 border border-abyss-border">
+            <div className="text-xs text-gray-500 mb-1">Connections</div>
+            <div className="text-xl font-bold text-white tabular-nums">{edges.length}</div>
           </div>
         </div>
       </div>

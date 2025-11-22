@@ -14,7 +14,7 @@ export interface GraphNode {
   id: string;
   label: string;
   data: WikiArticle;
-  depth: number; // Track how many clicks away from root
+  depth: number;
 }
 
 export interface GraphEdge {
@@ -31,9 +31,4 @@ export interface GraphState {
   rootNode: string | null;
   history: string[];
   isLoading: boolean;
-}
-
-export interface SearchSuggestion {
-  title: string;
-  description?: string;
 }

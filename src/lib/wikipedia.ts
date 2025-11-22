@@ -10,9 +10,6 @@ export class WikiAPIError extends Error {
   }
 }
 
-/**
- * Fetches article content from Wikipedia API
- */
 export async function fetchArticleSummary(title: string): Promise<WikiArticle> {
   const encodedTitle = encodeURIComponent(title.replace(/ /g, '_'));
   
@@ -43,9 +40,6 @@ export async function fetchArticleSummary(title: string): Promise<WikiArticle> {
   }
 }
 
-/**
- * Fetches semantically related articles from backend
- */
 export async function fetchArticleLinks(
   title: string,
   existingNodeLabels: string[],
@@ -63,7 +57,6 @@ export async function fetchArticleLinks(
 
     const data: WikiLink[] = await response.json();
 
-    // Filter out nodes that already exist
     return data
       .map(item => ({
         title: item.title.replace(/_/g, ' '),
@@ -77,27 +70,11 @@ export async function fetchArticleLinks(
   }
 }
 
-/**
- * Check backend health
- */
 export async function checkBackendHealth(): Promise<boolean> {
   try {
     const response = await fetch(`${BACKEND_API_BASE}/health`);
     return response.ok;
   } catch {
     return false;
-  }
-}
-
-/**
- * Get backend stats
- */
-export async function getBackendStats() {
-  try {
-    const response = await fetch(`${BACKEND_API_BASE}/health`);
-    if (!response.ok) return null;
-    return await response.json();
-  } catch {
-    return null;
   }
 }

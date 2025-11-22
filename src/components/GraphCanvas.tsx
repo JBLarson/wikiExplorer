@@ -1,37 +1,37 @@
 import { useEffect, useRef, useCallback, useMemo } from 'react';
-import ForceGraph3D, { ForceGraphMethods } from 'react-force-graph-3d';
+import ForceGraph3D, {ForceGraphMethods } from 'react-force-graph-3d';
 import { useGraphStore } from '../stores/graphStore';
 import SpriteText from 'three-spritetext';
 import * as THREE from 'three';
 
 interface GraphCanvasProps {
   onNodeClick: (nodeId: string) => void;
-  onNodeRightClick: (nodeId: string, x: number, y: number) => void;
 }
 
-// "Void Navy" Neon Palette
+// Deep Semantic Gradient
 const DEPTH_COLORS = [
-  '#6366f1', // Root: Indigo
-  '#8b5cf6', // Depth 1: Violet
-  '#d946ef', // Depth 2: Fuchsia
-  '#ec4899', // Depth 3: Pink
-  '#f43f5e', // Depth 4+: Rose
+  '#F43F5E', // Root: Rose (High Impact)
+  '#A855F7', // Depth 1: Purple
+  '#6366F1', // Depth 2: Indigo
+  '#3B82F6', // Depth 3: Blue
+  '#14B8A6', // Depth 4: Teal
+  '#10B981', // Depth 5+: Emerald
 ];
 
-export function GraphCanvas({ onNodeClick, onNodeRightClick }: GraphCanvasProps) {
+export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
   const fgRef = useRef<ForceGraphMethods>();
   const containerRef = useRef<HTMLDivElement>(null);
   
   const { nodes, edges, selectedNode, rootNode } = useGraphStore();
 
-  // Convert store data to mutable structure required by Three.js physics engine
+  // Prepare Graph Data
   const graphData = useMemo(() => {
     return {
       nodes: nodes.map(n => ({ 
         id: n.id, 
         group: n.depth,
         label: n.label,
-        val: n.id === rootNode ? 20 : 10 - (n.depth * 2) // Size based on depth
+        val: n.id === rootNode ? 30 : 15 - (Math.min(n.depth, 5) * 1.5) // Size scaling
       })),
       links: edges.map(e => ({ 
         source: e.source, 
@@ -40,29 +40,27 @@ export function GraphCanvas({ onNodeClick, onNodeRightClick }: GraphCanvasProps)
     };
   }, [nodes, edges, rootNode]);
 
-  const getNodeColor = useCallback((depth: number) => {
-    return DEPTH_COLORS[Math.min(depth, DEPTH_COLORS.length - 1)];
-  }, []);
-
-  // Initial Camera Position
+  // Physics Tuning for "Graceful Spacing"
   useEffect(() => {
     if (fgRef.current) {
-      fgRef.current.d3Force('charge')?.strength(-120); // Physics repulsion
-      fgRef.current.d3Force('link')?.distance(70); // Link length
+      // Strong repulsion to prevent clumping
+      fgRef.current.d3Force('charge')?.strength(-200); 
+      // Longer links to allow breathing room
+      fgRef.current.d3Force('link')?.distance(90);
+      // Gentle centering
+      fgRef.current.d3Force('center')?.strength(0.5);
     }
   }, []);
 
   const handleNodeClick = useCallback((node: any) => {
-    // Aim at node from outside it
-    const distance = 150;
-    // FIX: Replaced hallucinated Math.hypotHB with Math.hypot
+    const distance = 180;
     const distRatio = 1 + distance / Math.hypot(node.x, node.y, node.z);
 
     if (fgRef.current) {
       fgRef.current.cameraPosition(
-        { x: node.x * distRatio, y: node.y * distRatio, z: node.z * distRatio }, // new position
-        node, // lookAt ({ x, y, z })
-        3000  // ms transition duration
+        { x: node.x * distRatio, y: node.y * distRatio, z: node.z * distRatio },
+        node, 
+        2500
       );
     }
     onNodeClick(node.id);
@@ -73,63 +71,71 @@ export function GraphCanvas({ onNodeClick, onNodeRightClick }: GraphCanvasProps)
       <ForceGraph3D
         ref={fgRef}
         graphData={graphData}
-        backgroundColor="#050511" // The "Abyss" background
+        backgroundColor="#02020B"
         showNavInfo={false}
         
-        // Node Styling
+        // Nodes
         nodeLabel="label"
-        nodeColor={(node: any) => 
-          node.id === selectedNode ? '#ffffff' : getNodeColor(node.group)
-        }
-        nodeRelSize={6}
-        nodeOpacity={0.9}
-        nodeResolution={16}
+        nodeRelSize={8}
+        nodeResolution={24}
+        nodeOpacity={1}
         
-        // Node Glow / Material
-        nodeThreeObjectExtend={true}
+        // Custom ThreeJS Object for FAANG Quality
         nodeThreeObject={(node: any) => {
-          const color = node.id === selectedNode ? '#ffffff' : getNodeColor(node.group);
-          // Add a glow mesh (atmospheric glow)
-          const geometry = new THREE.SphereGeometry(node.val * 0.6);
-          const material = new THREE.MeshLambertMaterial({
-            color: color,
-            transparent: true,
-            opacity: 0.7,
-            emissive: color,
-            emissiveIntensity: 0.6,
+          const depthIndex = Math.min(node.group, DEPTH_COLORS.length - 1);
+          const baseColor = DEPTH_COLORS[depthIndex];
+          const isSelected = node.id === selectedNode;
+
+          const group = new THREE.Group();
+
+          // 1. The Core Sphere (Physical Material for sheen)
+          const geometry = new THREE.SphereGeometry(node.val * 0.5, 32, 32);
+          const material = new THREE.MeshPhysicalMaterial({
+            color: isSelected ? '#FFFFFF' : baseColor,
+            emissive: baseColor,
+            emissiveIntensity: isSelected ? 0.8 : 0.3,
+            roughness: 0.1,
+            metalness: 0.1,
+            clearcoat: 1.0,
+            clearcoatRoughness: 0.1,
           });
           const mesh = new THREE.Mesh(geometry, material);
-          
-          // Add Text Label as Sprite
+          group.add(mesh);
+
+          // 2. The Label (Sprite)
+          // OFFSET VERTICALLY to ensure full visibility
           const sprite = new SpriteText(node.label);
-          sprite.color = node.id === selectedNode ? '#ffffff' : '#a0aec0';
-          sprite.textHeight = 4;
-          sprite.position.y = 12; // Offset text above node
+          sprite.color = isSelected ? '#FFFFFF' : '#E2E8F0'; // Slate-200 normally
+          sprite.textHeight = 5 + (node.val * 0.1); // Scale text with node importance
           sprite.fontFace = 'Inter';
-          sprite.fontWeight = 'bold';
+          sprite.fontWeight = '600';
+          sprite.backgroundColor = 'rgba(2, 2, 11, 0.6)'; // Semi-transparent background for legibility
+          sprite.padding = 2;
+          sprite.borderRadius = 4;
           
-          mesh.add(sprite);
-          return mesh;
+          // The Magic Fix: Position text 1.5x radius above the node
+          sprite.position.set(0, node.val * 0.8 + 8, 0);
+          
+          group.add(sprite);
+
+          return group;
         }}
 
-        // Edge Styling
-        linkColor={() => '#2d314d'} // Dark subtle links
-        linkWidth={1}
-        linkOpacity={0.3}
-        linkDirectionalParticles={2} // Particles flowing along links
+        // Links
+        linkColor={() => '#2d314d'}
+        linkWidth={1.5}
+        linkOpacity={0.2}
+        linkDirectionalParticles={node => node.id === selectedNode ? 4 : 2}
         linkDirectionalParticleWidth={2}
         linkDirectionalParticleSpeed={0.005}
-        linkDirectionalParticleColor={() => '#6366f1'}
-        
+        linkDirectionalParticleColor={() => '#6366F1'} // Brand glow
+
         // Interaction
         onNodeClick={handleNodeClick}
-        onNodeRightClick={(node: any) => onNodeRightClick(node.id, 0, 0)}
         
-        // Physics Engine Tuning for "Graceful Spacing"
-        d3AlphaDecay={0.02}
-        d3VelocityDecay={0.3}
+        // Engine
         warmupTicks={100}
-        cooldownTicks={0}
+        cooldownTicks={Infinity} // Keep animating slightly
       />
     </div>
   );
