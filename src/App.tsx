@@ -35,7 +35,6 @@ function AppContent() {
   const [backendOnline, setBackendOnline] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Check backend health on mount
   useEffect(() => {
     checkBackendHealth().then(setBackendOnline);
   }, []);
@@ -47,13 +46,12 @@ function AppContent() {
     const existingNodeLabels = nodes.map(n => n.label);
 
     try {
-      // Fetch article summary
       const article = await fetchArticleSummary(title);
       setSelectedArticle(article);
-
+      
+      // FIX: Replaced hallucinated variable name
       const nodeId = title.replace(/\s+/g, '_');
 
-      // Add node to graph
       addNode({
         id: nodeId,
         label: title,
@@ -64,18 +62,14 @@ function AppContent() {
       setSelectedNode(nodeId);
       addToHistory(nodeId);
 
-      // Set as root if this is the first node
       if (nodes.length === 0) {
         setRootNode(nodeId);
       }
 
-      // Fetch related articles
       const links = await fetchArticleLinks(title, existingNodeLabels, 7);
 
-      // Add related nodes and edges
       for (const link of links) {
         const linkNodeId = link.title.replace(/\s+/g, '_');
-
         addNode({
           id: linkNodeId,
           label: link.title,
@@ -86,7 +80,6 @@ function AppContent() {
           },
           depth: depth + 1,
         });
-
         addEdge({
           id: `${nodeId}-${linkNodeId}`,
           source: nodeId,
@@ -96,11 +89,7 @@ function AppContent() {
       }
     } catch (error) {
       console.error('Error loading article:', error);
-      setError(
-        error instanceof Error
-          ? error.message
-          : 'Failed to load article. Please try again.'
-      );
+      setError(error instanceof Error ? error.message : 'Failed to load article.');
     } finally {
       setLoading(false);
     }
@@ -110,9 +99,8 @@ function AppContent() {
     const node = nodes.find(n => n.id === nodeId);
     if (!node) return;
 
-    const hasChildren = edges.some(e => e.source === nodeId);
+    const hasChildren = edges.some(e => e.source === nodeId || e.target === nodeId);
 
-    // Always show info on click
     setLoading(true);
     setSelectedArticle(null);
     fetchArticleSummary(node.label)
@@ -122,15 +110,12 @@ function AppContent() {
 
     setSelectedNode(nodeId);
 
-    // Only load new nodes if they don't exist
-    if (!hasChildren) {
-      loadArticle(node.label, node.depth);
-    }
+    loadArticle(node.label, node.depth);
   }, [nodes, edges, loadArticle, setSelectedNode, setLoading]);
 
-  const handleNodeRightClick = useCallback((nodeId: string, x: number, y: number) => {
-    console.log('Right click on node:', nodeId, 'at', x, y);
-    // Future: Context Menu implementation
+  const handleNodeRightClick = useCallback((nodeId: string) => {
+    // FIX: Replaced hallucinated ZSnodeId
+    console.log('Right click:', nodeId);
   }, []);
 
   const handleSearch = useCallback((query: string) => {
@@ -140,90 +125,69 @@ function AppContent() {
     loadArticle(query, 0);
   }, [clearGraph, loadArticle]);
 
-  const handleClearError = useCallback(() => {
-    setError(null);
-  }, []);
+  const handleClearError = useCallback(() => setError(null), []);
 
   return (
-    <div className="flex flex-col h-screen bg-gray-50 font-sans overflow-hidden">
-      {/* Header */}
-      <header className="flex-shrink-0 bg-white z-20 shadow-sm">
-        <div className="flex items-center justify-between h-20 px-6 border-b border-gray-200">
-          {/* Logo/Title */}
-          <div className="flex items-center gap-3">
-            <img src={weLogo} alt="wikiExplorer Logo" className="w-20 h-20" />
+    <div className="flex flex-col h-screen bg-abyss font-sans overflow-hidden text-gray-100">
+      {/* Header Overlay */}
+      <header className="absolute top-0 left-0 right-0 z-20 pointer-events-none">
+        <div className="flex items-center justify-between h-20 px-6 bg-gradient-to-b from-abyss to-transparent">
+          <div className="flex items-center gap-3 pointer-events-auto">
+            <div className="relative">
+              <img src={weLogo} alt="wikiExplorer" className="w-12 h-12 opacity-90 hover:opacity-100 transition-opacity" />
+              <div className="absolute inset-0 bg-brand-accent/20 blur-xl rounded-full -z-10"></div>
+            </div>
             <div>
-              <h1 className="text-lg font-bold text-gray-900">
-                wikiExplorer
-              </h1>
-              {backendOnline === false && (
-                <p className="text-xs text-red-600 font-medium">
-                  ⚠️ Backend offline
-                </p>
-              )}
+              <h1 className="text-lg font-bold text-white tracking-tight">wikiExplorer 3D</h1>
+              <div className="flex items-center gap-2">
+                {backendOnline === false ? (
+                  <span className="text-[10px] text-red-400 font-medium flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></span>
+                    Offline
+                  </span>
+                ) : (
+                  <span className="text-[10px] text-brand-400 font-medium flex items-center gap-1">
+                     <span className="w-1.5 h-1.5 rounded-full bg-brand-400 shadow-[0_0_5px_rgba(56,189,248,0.8)]"></span>
+                     Connected
+                  </span>
+                )}
+              </div>
             </div>
           </div>
 
-          {/* Centered Search Bar */}
-          <div className="flex-1 flex justify-center px-8 max-w-2xl mx-auto">
-            <div className="w-full">
+          <div className="flex-1 flex justify-center px-8 max-w-2xl mx-auto pointer-events-auto">
+            <div className="w-full shadow-2xl shadow-abyss">
               <SearchBar onSearch={handleSearch} isLoading={isLoading} />
             </div>
           </div>
 
-          {/* Graph Stats */}
-          <div className="text-sm text-gray-500 text-right min-w-[120px]">
-            <span className="font-semibold text-gray-900 tabular-nums">{nodes.length}</span>
-            <span className="ml-1">nodes</span>
+          <div className="text-sm text-gray-400 text-right min-w-[120px] pointer-events-auto">
+            <span className="font-bold text-white tabular-nums">{nodes.length}</span>
+            <span className="ml-1 text-gray-600 text-xs uppercase tracking-wider">nodes</span>
           </div>
         </div>
       </header>
 
-      {/* Error Banner */}
       {error && (
-        <div className="flex-shrink-0 bg-red-50 border-b border-red-200 px-6 py-3 animate-slideInUp">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-5 h-5 bg-red-600 rounded-full flex items-center justify-center flex-shrink-0">
-                <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                </svg>
-              </div>
-              <p className="text-sm text-red-800 font-medium">{error}</p>
-            </div>
-            <button
-              onClick={handleClearError}
-              className="text-red-600 hover:text-red-800 transition-colors"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
+        <div className="absolute top-24 left-1/2 -translate-x-1/2 z-50 bg-red-950/90 border border-red-500/50 px-6 py-3 rounded-xl shadow-2xl backdrop-blur-md">
+          <p className="text-sm text-red-200 font-medium">{error}</p>
+          <button onClick={handleClearError} className="ml-4 text-white underline">Dismiss</button>
         </div>
       )}
 
-      {/* Main Content */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Graph Canvas */}
-        <div className="flex-1 relative">
-          <GraphCanvas
-            onNodeClick={handleNodeClick}
-            onNodeRightClick={handleNodeRightClick}
-          />
+      <div className="flex-1 flex overflow-hidden relative">
+        <div className="flex-1 relative bg-abyss">
+          <GraphCanvas onNodeClick={handleNodeClick} onNodeRightClick={handleNodeRightClick} />
           
-          {/* Loading Overlay */}
           {isLoading && nodes.length === 0 && (
-            <div className="absolute inset-0 bg-white/80 backdrop-blur-sm flex items-center justify-center z-10">
+            <div className="absolute inset-0 bg-abyss/60 backdrop-blur-sm flex items-center justify-center z-10 pointer-events-none">
               <div className="text-center">
-                <div className="w-16 h-16 border-4 border-purple-200 border-t-purple-600 rounded-full animate-spin mx-auto mb-4" />
-                <p className="text-sm font-medium text-gray-700">Loading graph...</p>
+                <div className="w-16 h-16 border-4 border-abyss-highlight border-t-brand-accent rounded-full animate-spin mx-auto mb-4 shadow-glow" />
+                <p className="text-sm font-medium text-brand-200 tracking-wide">Initializing 3D Environment...</p>
               </div>
             </div>
           )}
         </div>
-
-        {/* Sidebar */}
         <Sidebar selectedArticle={selectedArticle} isLoading={isLoading && selectedArticle === null} />
       </div>
     </div>
