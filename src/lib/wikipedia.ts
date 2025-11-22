@@ -1,4 +1,4 @@
-import type { WikiArticle, WikiLink } from '../types';
+import type { WikiArticle, WikiLink, GraphEdge } from '../types';
 
 const WIKI_API_BASE = 'https://en.wikipedia.org/api/rest_v1/page/summary';
 const BACKEND_API_BASE = '/api';
@@ -40,33 +40,65 @@ export async function fetchArticleSummary(title: string): Promise<WikiArticle> {
   }
 }
 
+interface BackendResponse {
+  results: Array<{ title: string; score: number }>;
+  cross_edges: Array<{ source: number; target: number; score: number }>;
+}
+
 export async function fetchArticleLinks(
   title: string,
   existingNodeLabels: string[],
+  existingNodeIds: string[],
   k: number = 7
-): Promise<WikiLink[]> {
+): Promise<{ links: WikiLink[]; crossEdges: GraphEdge[] }> {
+  
   const query = encodeURIComponent(title.replace(/ /g, '_'));
+  const contextParam = existingNodeIds.length > 0 ? existingNodeIds.join(',') : '';
   
   try {
-    const response = await fetch(`${BACKEND_API_BASE}/related/${query}?k=${k}`);
+    const response = await fetch(
+      `${BACKEND_API_BASE}/related/${query}?k=${k}&context=${contextParam}`
+    );
 
     if (!response.ok) {
       console.error('Backend API error:', response.status);
-      return [];
+      return { links: [], crossEdges: [] };
     }
 
-    const data: WikiLink[] = await response.json();
+    const data: BackendResponse = await response.json();
 
-    return data
-      .map(item => ({
+    // Process new links (Parent -> Child)
+    const links: WikiLink[] = data.results
+      .map((item) => ({
         title: item.title.replace(/_/g, ' '),
-        score: item.score
+        score: item.score,
       }))
-      .filter(link => !existingNodeLabels.includes(link.title));
-      
+      .filter((link) => !existingNodeLabels.includes(link.title));
+
+    // Process cross-edges (Child <-> Existing Graph)
+    // Note: Backend returns numeric IDs, but frontend uses string IDs (titles/underscored)
+    // You might need to map these IDs if your frontend IDs aren't numeric. 
+    // Assuming frontend uses string IDs like "Title_of_Page", we might need logic in App.tsx 
+    // to match these numeric IDs back to those strings if the backend provides that mapping,
+    // OR simply assume the backend edge response uses the same ID format as the nodes.
+    // 
+    // based on your API, it returns source/target as INTs. 
+    // If your frontend uses strings as IDs, this part will need adjustment in App.tsx 
+    // to find the node by its internal article_id, OR you update the backend to return titles.
+    //
+    // For now, we pass them through as-is, but you will likely need to map them in App.tsx
+    const crossEdges: GraphEdge[] = data.cross_edges.map((edge) => ({
+      id: `cross-${edge.source}-${edge.target}`,
+      source: edge.source.toString(), 
+      target: edge.target.toString(),
+      score: edge.score
+    }));
+
+    return { links, crossEdges };
+
   } catch (error) {
     console.error('Error fetching related articles:', error);
-    return [];
+    return { links: [], crossEdges: [] };
   }
 }
 
