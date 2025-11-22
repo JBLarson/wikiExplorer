@@ -7,24 +7,33 @@ export interface WikiArticle {
 
 export interface WikiLink {
   title: string;
-  score: number; // 0-100 from your backend
+  score: number;
 }
 
 export interface GraphNode {
   id: string;
   label: string;
   data: WikiArticle;
+  depth: number; // Track how many clicks away from root
 }
 
 export interface GraphEdge {
   id: string;
   source: string;
   target: string;
+  score?: number;
 }
 
 export interface GraphState {
   nodes: GraphNode[];
   edges: GraphEdge[];
   selectedNode: string | null;
+  rootNode: string | null;
   history: string[];
+  isLoading: boolean;
+}
+
+export interface SearchSuggestion {
+  title: string;
+  description?: string;
 }

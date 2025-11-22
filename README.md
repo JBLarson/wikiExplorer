@@ -1,46 +1,82 @@
-# wikiExplorer 
+# wikiExplorer Frontend
 
-A desktop-first web application for exploring Wikipedia as a radial tree / interactive knowledge graph.
+A production-grade, FAANG-quality web application for exploring Wikipedia through semantic graph visualization.
 
 <p align="center">
   <img src="src/assets/wikiExplorer-logo-300.png" alt="wikiExplorer Logo" width="300">
 </p>
 
-## Overview
+[![React](https://img.shields.io/badge/React-18.2-61dafb?logo=react)](https://reactjs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.3-3178c6?logo=typescript)](https://www.typescriptlang.org/)
+[![Tailwind](https://img.shields.io/badge/Tailwind-3.4-38bdf8?logo=tailwindcss)](https://tailwindcss.com/)
 
-Search for any Wikipedia article and visualize its connections as an interactive knowledge graph. Click on nodes to explore related concepts and discover how topics connect through semantic relationships.
+## 🎯 Overview
 
-**🔗 Backend Server:** This frontend requires the [wikiVector backend](https://github.com/jblarson/wikiVector) running locally.
+wikiExplorer transforms Wikipedia into an interactive knowledge graph, powered by vector embeddings and semantic search. Search any topic and watch as related concepts branch out in a beautiful, physics-based visualization.
 
-## Features
+**🔗 Backend Required:** [github.com/jblarson/wikiExplorer](https://github.com/jblarson/wikiExplorer)
 
-- **Semantic Search** - Powered by vector embeddings covering 6.2M+ Wikipedia articles
-- **Interactive Graph** - Smooth physics-based layout with intelligent node positioning
-- **Smart Filtering** - Shows only the most relevant connections to prevent information overload
-- **Rich Previews** - Article thumbnails, summaries, and direct links to Wikipedia
-- **Keyboard Shortcuts** - Press `/` to focus the search bar instantly
-- **Real-time Stats** - Track your exploration with live node and edge counts
+## ✨ Features
 
-## Tech Stack
+### Core Functionality
+- **🧠 Semantic Search** - Vector embeddings over 6.2M+ Wikipedia articles
+- **🎨 Interactive Graph** - Physics-based COSE layout with smooth animations
+- **🎯 Smart Filtering** - Hybrid ranking combining semantic similarity, backlinks, and title overlap
+- **📊 Real-time Stats** - Track nodes, edges, and graph depth
+- **⚡ Keyboard Shortcuts** - Press `/` to focus search instantly
 
-- **React 18** + TypeScript
-- **Cytoscape.js** for graph visualization
-- **Zustand** for state management
-- **TanStack Query** for API caching
-- **Tailwind CSS** for styling
-- **Vite** for development
-- **Wikipedia REST API** for article content
+### User Experience
+- **🎭 Beautiful UI** - Purple-themed design with Inter font
+- **🌈 Depth Visualization** - Color-coded nodes by exploration depth
+- **🖼️ Rich Previews** - Article thumbnails and summaries
+- **📱 Responsive** - Optimized for desktop-first workflow
+- **♿ Accessible** - WCAG-compliant color contrast and keyboard navigation
 
-## Getting Started
+### Performance
+- **⚡ Lazy Loading** - Only loads child nodes on click
+- **🔄 Smart Caching** - TanStack Query for optimal data fetching
+- **🎬 Smooth Animations** - 60fps graph transitions
+- **📦 Optimized Bundle** - Code splitting and tree shaking
+
+## 🛠️ Tech Stack
+
+### Frontend Framework
+- **React 18** - Hooks-based architecture
+- **TypeScript 5** - Full type safety
+- **Vite** - Lightning-fast HMR
+
+### Visualization
+- **Cytoscape.js** - Professional graph rendering
+- **COSE Algorithm** - Physics-based layout engine
+- **Custom Styling** - Depth-based coloring system
+
+### State Management
+- **Zustand** - Lightweight global state
+- **TanStack Query** - Server state synchronization
+- **React Hooks** - Local component state
+
+### Styling
+- **Tailwind CSS** - Utility-first styling
+- **Heroicons** - Beautiful SVG icons
+- **Custom Animations** - Smooth transitions
+
+### APIs
+- **Wikipedia REST API** - Article content
+- **Backend Vector Search** - Semantic similarity
+
+## 🚀 Getting Started
 
 ### Prerequisites
 
-- Node.js 18+
-- Backend server running at `http://localhost:5001` (see [wikiExplorer](https://github.com/jblarson/wikiExplorer))
+```bash
+Node.js 18+ required
+Backend server running at http://localhost:5001
+```
 
 ### Installation
+
 ```bash
-# Clone the repository
+# Clone repository
 git clone https://github.com/jblarson/wikiExplorer-frontend.git
 cd wikiExplorer-frontend
 
@@ -51,23 +87,212 @@ npm install
 npm run dev
 ```
 
-The app will be available at `http://localhost:5173`
+Visit `http://localhost:5173`
 
-## How It Works
+### Production Build
 
-1. **Search** - Enter any Wikipedia topic
-2. **Semantic Analysis** - Backend finds related articles using vector embeddings
-3. **Graph Rendering** - Cytoscape visualizes connections with physics-based layout
-4. **Exploration** - Click nodes to expand, hover to highlight connections
+```bash
+npm run build
+npm run preview
+```
 
-## Inspiration
+## 🏗️ Architecture
 
-Inspired by [WikiNodes](https://en.wikipedia.org/wiki/WikiNodes), a Wikipedia graph visualization app that was available on iPad in the early 2010s. That app offered a beautiful way to explore knowledge visually, but has since disappeared from the app store.
+### Project Structure
 
-This is a modern, open-source, desktop-first recreation of that concept with semantic search capabilities.
+```
+src/
+├── components/
+│   ├── GraphCanvas.tsx      # Cytoscape visualization
+│   ├── SearchBar.tsx        # Search with autocomplete
+│   └── Sidebar.tsx          # Article details panel
+├── lib/
+│   └── wikipedia.ts         # API integration layer
+├── stores/
+│   └── graphStore.ts        # Zustand state management
+├── types/
+│   └── index.ts             # TypeScript definitions
+├── assets/
+│   └── wikiExplorer-logo-300.png
+└── App.tsx                  # Root component
+```
 
-Special thanks to the original WikiNodes developers for pioneering this approach to knowledge exploration.
+### Data Flow
 
-## License
+```
+User Search → Backend API → Vector Search → Related Articles
+                ↓
+          Wikipedia API → Article Metadata
+                ↓
+          Zustand Store → Graph State
+                ↓
+          Cytoscape → Visual Rendering
+```
 
-MIT
+### State Architecture
+
+**Graph Store (`graphStore.ts`)**:
+```typescript
+{
+  nodes: GraphNode[]        // All articles in graph
+  edges: GraphEdge[]        // Connections between articles
+  selectedNode: string      // Currently focused article
+  rootNode: string          // Starting point of exploration
+  history: string[]         // Navigation breadcrumbs
+  isLoading: boolean        // Loading state
+}
+```
+
+**Node Structure**:
+```typescript
+{
+  id: string                // Unique identifier
+  label: string             // Display name
+  data: WikiArticle         // Full article metadata
+  depth: number             // Distance from root (0, 1, 2...)
+}
+```
+
+## 🎨 Design System
+
+### Color Palette
+
+```typescript
+Primary Purple Gradient:
+- depth 0 (root):  #9333ea (vibrant purple)
+- depth 1:         #a855f7 (lighter purple)
+- depth 2:         #c084fc (medium purple)
+- depth 3:         #d8b4fe (light purple)
+- depth 4+:        #e9d5ff (lightest purple)
+
+UI Colors:
+- Background:      #ffffff, #f9fafb, #f3f4f6
+- Text:            #1f2937, #4b5563, #9ca3af
+- Border:          #e5e7eb, #d1d5db
+- Accent:          #3b82f6 (blue for selection)
+```
+
+### Typography
+
+```css
+Font Family: Inter (Google Fonts)
+Weights: 400 (regular), 600 (semibold), 700 (bold)
+
+Sizes:
+- Headings: 2xl (24px), xl (20px), lg (18px)
+- Body: sm (14px), base (16px)
+- Labels: xs (12px)
+```
+
+## 🔧 Configuration
+
+### Backend Proxy
+
+Configure in `vite.config.ts`:
+
+```typescript
+server: {
+  proxy: {
+    '/api': {
+      target: 'http://localhost:5001',
+      changeOrigin: true,
+    }
+  }
+}
+```
+
+### Graph Layout
+
+Tune physics parameters in `GraphCanvas.tsx`:
+
+```typescript
+{
+  idealEdgeLength: 150,      // Spacing between nodes
+  nodeRepulsion: 100000,     // How much nodes push apart
+  edgeElasticity: 120,       // Edge spring strength
+  gravity: 1.5,              // Center pull force
+  numIter: 1500,             // Simulation iterations
+}
+```
+
+## 📊 Performance Optimization
+
+### Bundle Size
+- Code splitting via dynamic imports
+- Tree shaking with ES modules
+- Minification in production build
+
+### Runtime Performance
+- Virtualized graph rendering
+- Debounced search input
+- Memoized callbacks and selectors
+- Lazy node expansion
+
+### Network Optimization
+- Request deduplication via TanStack Query
+- Stale-while-revalidate caching
+- Parallel article fetching
+
+## 🧪 Development
+
+### Type Checking
+
+```bash
+npx tsc --noEmit
+```
+
+### Code Quality
+
+```bash
+npm run lint
+```
+
+### Hot Module Replacement
+
+Vite provides instant HMR for React components, CSS, and TypeScript.
+
+## 🎯 Future Enhancements
+
+- [ ] **Graph Persistence** - Save/load graph states
+- [ ] **Export Options** - PNG, SVG, JSON export
+- [ ] **Advanced Filtering** - Filter by depth, score, category
+- [ ] **Search History** - Recent searches with autocomplete
+- [ ] **Context Menu** - Right-click node actions
+- [ ] **Graph Layouts** - Multiple layout algorithms
+- [ ] **Dark Mode** - Theme switcher
+- [ ] **Performance Metrics** - FPS counter and stats
+- [ ] **Mobile Optimization** - Touch gestures
+
+## 🐛 Known Issues
+
+- Graph layout may shift slightly when adding many nodes at once
+- Thumbnail loading can be slow on poor connections
+- Very deep graphs (depth > 5) may impact performance
+
+## 🤝 Contributing
+
+Contributions welcome! Please:
+
+1. Fork the repository
+2. Create a feature branch
+3. Follow TypeScript best practices
+4. Test thoroughly
+5. Submit a pull request
+
+## 📄 License
+
+MIT License - See [LICENSE](LICENSE) for details
+
+## 🙏 Acknowledgments
+
+**Inspired by WikiNodes** - The pioneering iPad app from the early 2010s that introduced visual Wikipedia exploration. This project reimagines that experience with modern web technologies and semantic search.
+
+## 📚 Related Projects
+
+- **[wikiExplorer Backend](https://github.com/jblarson/wikiExplorer)** - Python server with FAISS vector search
+- **[Cytoscape.js](https://js.cytoscape.org/)** - Graph visualization library
+- **[sentence-transformers](https://www.sbert.net/)** - Semantic text embeddings
+
+---
+
+**Built with ❤️ by the wikiExplorer team**

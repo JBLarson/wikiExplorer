@@ -15,8 +15,8 @@
     "isolatedModules": true,
     "noEmit": true,
     "jsx": "react-jsx",
-    "types": ["vite/client"] // <-- This specifically looks for Vite's types
+    "types": ["vite/client"]
   },
-  "include": ["src"], // <-- This tells TS to look at everything in 'src'
-  "references": [{ "path": "./tsconfig.node.json" }] // <-- See note below
+  "include": ["src"],
+  "references": [{ "path": "./tsconfig.node.json" }]
 }
