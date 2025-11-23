@@ -40,81 +40,91 @@ function AppContent() {
   }, []);
 
   const loadArticle = useCallback(async (title: string, depth: number = 0) => {
-    setLoading(true);
-    setError(null);
-    
-    // Prepare context for the backend so it knows what we already have
-    const existingNodeLabels = nodes.map(n => n.label);
-    const existingNodeIds = nodes.map(n => n.id); 
+  setLoading(true);
+  setError(null);
+  
+  // Normalize the node ID to underscored lowercase
+  const nodeId = title.toLowerCase().replace(/\s+/g, '_');
+  
+  // Prepare context - use node IDs (which are already underscored)
+  const existingNodeLabels = nodes.map(n => n.label);
+  const existingNodeIds = nodes.map(n => n.id); 
 
-    try {
-      // 1. Fetch Article Metadata
-      const article = await fetchArticleSummary(title);
-      setSelectedArticle(article);
-      const nodeId = title.replace(/\s+/g, '_');
+  try {
+    // 1. Fetch Article Metadata (this might return different casing)
+    const article = await fetchArticleSummary(title);
+    setSelectedArticle(article);
 
-      // 2. Add the Central Node
-      addNode({
-        id: nodeId,
-        label: title,
-        data: article,
-        depth,
-      });
+    // 2. Add the Central Node with normalized ID
+    addNode({
+      id: nodeId,
+      label: article.title,  // Use the canonical title from Wikipedia
+      data: article,
+      depth,
+    });
 
-      setSelectedNode(nodeId);
-      addToHistory(nodeId);
+    setSelectedNode(nodeId);
+    addToHistory(nodeId);
 
-      if (nodes.length === 0) {
-        setRootNode(nodeId);
-      }
-
-      // 3. Fetch Semantic Links & Cross Edges
-      // We pass existingNodeIds so the backend can calculate the mesh
-      const { links, crossEdges } = await fetchArticleLinks(title, existingNodeLabels, existingNodeIds, 7);
-
-      // 4. Add New Nodes (The "Star" expansion)
-      for (const link of links) {
-        const linkNodeId = link.title.replace(/\s+/g, '_');
-        addNode({
-          id: linkNodeId,
-          label: link.title,
-          data: {
-            title: link.title,
-            extract: '',
-            url: `https://en.wikipedia.org/wiki/${encodeURIComponent(link.title)}`,
-          },
-          depth: depth + 1,
-        });
-        
-        // Link from Parent -> Child
-        addEdge({
-          id: `${nodeId}-${linkNodeId}`,
-          source: nodeId,
-          target: linkNodeId,
-          score: link.score,
-        });
-      }
-
-      // 5. Add Cross Edges (The "Mesh" connectivity)
-      // These connect the new children to each other, or to existing nodes in the graph
-      if (crossEdges && crossEdges.length > 0) {
-        for (const edge of crossEdges) {
-          addEdge({
-            id: `cross-${edge.source}-${edge.target}`,
-            source: edge.source, // Backend ensures this is the ID string (underscored)
-            target: edge.target,
-            score: edge.score
-          });
-        }
-      }
-
-    } catch (error) {
-      console.error('Error loading article:', error);
-      setError(error instanceof Error ? error.message : 'Failed to load article.');
-    } finally {
-      setLoading(false);
+    if (nodes.length === 0) {
+      setRootNode(nodeId);
     }
-  }, [nodes, addNode, addEdge, setSelectedNode, addToHistory, setRootNode, setLoading]);
+
+    // 3. Fetch Semantic Links & Cross Edges
+    const { links, crossEdges } = await fetchArticleLinks(
+      article.title,  // Use canonical title
+      existingNodeLabels, 
+      existingNodeIds, 
+      7
+    );
+
+    // 4. Add New Nodes
+    for (const link of links) {
+      const linkNodeId = link.title.toLowerCase().replace(/\s+/g, '_');
+      
+      addNode({
+        id: linkNodeId,
+        label: link.title,
+        data: {
+          title: link.title,
+          extract: '',
+          url: `https://en.wikipedia.org/wiki/${encodeURIComponent(link.title.replace(/ /g, '_'))}`,
+        },
+        depth: depth + 1,
+      });
+      
+      // Link from Parent -> Child
+      addEdge({
+        id: `${nodeId}-${linkNodeId}`,
+        source: nodeId,
+        target: linkNodeId,
+        score: link.score,
+      });
+    }
+
+    // 5. Add Cross Edges
+    if (crossEdges && crossEdges.length > 0) {
+      for (const edge of crossEdges) {
+        // Normalize edge IDs to match our node IDs
+        const sourceId = edge.source.toLowerCase().replace(/\s+/g, '_');
+        const targetId = edge.target.toLowerCase().replace(/\s+/g, '_');
+        
+        addEdge({
+          id: `cross-${sourceId}-${targetId}`,
+          source: sourceId,
+          target: targetId,
+          score: edge.score
+        });
+      }
+    }
+
+  } catch (error) {
+    console.error('Error loading article:', error);
+    setError(error instanceof Error ? error.message : 'Failed to load article.');
+  } finally {
+    setLoading(false);
+  }
+}, [nodes, addNode, addEdge, setSelectedNode, addToHistory, setRootNode, setLoading]);
 
   const handleNodeClick = useCallback((nodeId: string) => {
     const node = nodes.find(n => n.id === nodeId);
@@ -122,13 +132,15 @@ function AppContent() {
 
     setLoading(true);
     setSelectedArticle(null);
+    
+    // Use the node's label (canonical title) for fetching
     fetchArticleSummary(node.label)
       .then(setSelectedArticle)
       .catch(err => setError(err.message))
       .finally(() => setLoading(false));
 
     setSelectedNode(nodeId);
-    loadArticle(node.label, node.depth);
+    loadArticle(node.label, node.depth);  // Use label, not ID
   }, [nodes, loadArticle, setSelectedNode, setLoading]);
 
   const handleSearch = useCallback((query: string) => {
