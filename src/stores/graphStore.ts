@@ -13,6 +13,7 @@ interface GraphStore extends GraphState {
   getNodeById: (nodeId: string) => GraphNode | undefined;
   getNodesByDepth: (depth: number) => GraphNode[];
   getConnectedNodes: (nodeId: string) => GraphNode[];
+  incrementExpansionCount: (nodeId: string) => void;  // Add this
 }
 
 export const useGraphStore = create<GraphStore>((set, get) => ({
@@ -69,6 +70,15 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
   
   setLoading: (loading) =>
     set({ isLoading: loading }),
+  
+  incrementExpansionCount: (nodeId) =>
+    set((state) => ({
+      nodes: state.nodes.map(n => 
+        n.id === nodeId 
+          ? { ...n, expansionCount: n.expansionCount + 1 }
+          : n
+      )
+    })),
   
   getNodeById: (nodeId) => {
     return get().nodes.find(n => n.id === nodeId);

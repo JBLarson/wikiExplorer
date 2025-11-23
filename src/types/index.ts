@@ -1,7 +1,7 @@
 export interface WikiArticle {
   title: string;
   extract: string;
-  fullText?: string; 
+  fullText?: string;
   thumbnail?: string;
   url: string;
 }
@@ -16,6 +16,7 @@ export interface GraphNode {
   label: string;
   data: WikiArticle;
   depth: number;
+  expansionCount: number;
 }
 
 export interface GraphEdge {

@@ -36,6 +36,14 @@ export function GraphCanvas({ onNodeClick, onNodeRightClick }: GraphCanvasProps)
     };
   }, [nodes, edges, rootNode]);
 
+  // Re-heat simulation when nodes are added
+  useEffect(() => {
+    if (fgRef.current && nodes.length > 0) {
+      // Reheat the simulation to handle new nodes
+      fgRef.current.d3ReheatSimulation();
+    }
+  }, [nodes.length]);
+
   // Initialize scene environment
   useEffect(() => {
     if (!fgRef.current) return;
@@ -132,12 +140,12 @@ export function GraphCanvas({ onNodeClick, onNodeRightClick }: GraphCanvasProps)
     };
   }, [graphData.links, graphData.nodes]);
 
-  // Configure force simulation
+  // Configure force simulation with stronger forces
   useEffect(() => {
     if (fgRef.current) {
-      fgRef.current.d3Force('charge')?.strength(-250);
-      fgRef.current.d3Force('link')?.distance(100);
-      fgRef.current.d3Force('center')?.strength(0.15);
+      fgRef.current.d3Force('charge')?.strength(-400);  // Increased repulsion
+      fgRef.current.d3Force('link')?.distance(150);     // Increased distance
+      fgRef.current.d3Force('center')?.strength(0.2);   // Increased centering
     }
   }, []);
 
@@ -213,7 +221,9 @@ export function GraphCanvas({ onNodeClick, onNodeRightClick }: GraphCanvasProps)
         
         warmupTicks={120}
         cooldownTicks={Infinity}
-        cooldownTime={20000}
+        cooldownTime={15000}
+        d3AlphaDecay={0.01}
+        d3VelocityDecay={0.3}
       />
     </div>
   );
