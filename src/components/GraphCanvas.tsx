@@ -9,9 +9,10 @@ import { createNodeObject } from './graph/NodeRenderer';
 
 interface GraphCanvasProps {
   onNodeClick: (nodeId: string) => void;
+  onNodeRightClick: (nodeId: string) => void;
 }
 
-export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
+export function GraphCanvas({ onNodeClick, onNodeRightClick }: GraphCanvasProps) {
   const fgRef = useRef<ForceGraphMethods>();
   const containerRef = useRef<HTMLDivElement>(null);
   const mistLinesRef = useRef<Map<string, THREE.Points>>(new Map());
@@ -40,17 +41,12 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
     if (!fgRef.current) return;
     const scene = fgRef.current.scene();
     
-    // Setup atmospheric particles
     const { stars, material: starMaterial } = createAtmosphericParticles();
     scene.add(stars);
 
-    // Setup lighting
     setupLighting(scene);
-
-    // Setup fog
     setupFog(scene);
 
-    // Animation loop for environment
     const animate = () => {
       timeRef.current += 0.008;
       starMaterial.uniforms.time.value = timeRef.current;
@@ -68,18 +64,12 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
     };
   }, []);
 
-
-
-
-
-
   // Create volumetric mist connections
   useEffect(() => {
     if (!fgRef.current) return;
     
     const scene = fgRef.current.scene();
     
-    // ALWAYS clear ALL existing mist first, synchronously
     mistLinesRef.current.forEach(mist => {
       scene.remove(mist);
       mist.geometry.dispose();
@@ -91,14 +81,11 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
     });
     mistLinesRef.current.clear();
     
-    // If no links, we're done
     if (graphData.links.length === 0) return;
 
-    // Wait for force-graph to position nodes
     const timeoutId = setTimeout(() => {
       if (!fgRef.current) return;
 
-      // Store node positions
       const nodePositions = new Map<string, THREE.Vector3>();
       graphData.nodes.forEach(node => {
         const nodeData = node as any;
@@ -107,8 +94,6 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
         }
       });
 
-
-      // Create mist for each edge
       graphData.links.forEach((link, index) => {
         const sourceId = typeof link.source === 'object' && link.source !== null ? (link.source as any).id : link.source as string;
         const targetId = typeof link.target === 'object' && link.target !== null ? (link.target as any).id : link.target as string;
@@ -116,10 +101,7 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
         const sourcePos = nodePositions.get(sourceId);
         const targetPos = nodePositions.get(targetId);
         
-        if (!sourcePos || !targetPos) {
-          console.log(`⚠️ Skip link ${sourceId} -> ${targetId}`);
-          return;
-        }
+        if (!sourcePos || !targetPos) return;
 
         const mist = createMistConnection(sourcePos, targetPos, timeRef.current + index * 0.5);
         scene.add(mist);
@@ -128,7 +110,6 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
         mistLinesRef.current.set(edgeKey, mist);
       });
 
-      // Animate mist
       const mistAnimationLoop = () => {
         animateMist(mistLinesRef.current, 0.012);
         requestAnimationFrame(mistAnimationLoop);
@@ -136,10 +117,8 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
       mistAnimationLoop();
     }, 2000);
 
-    // Cleanup function
     return () => {
       clearTimeout(timeoutId);
-      // Clear mist when effect re-runs
       mistLinesRef.current.forEach(mist => {
         scene.remove(mist);
         mist.geometry.dispose();
@@ -153,11 +132,6 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
     };
   }, [graphData.links, graphData.nodes]);
 
-
-
-
-
-
   // Configure force simulation
   useEffect(() => {
     if (fgRef.current) {
@@ -167,7 +141,8 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
     }
   }, []);
 
-  const handleNodeClick = useCallback((node: any) => {
+  const handleNodeClick = useCallback((node: any, event: MouseEvent) => {
+    // Left click - expand graph
     const distance = 220;
     const distRatio = 1 + distance / Math.hypot(node.x, node.y, node.z);
 
@@ -181,12 +156,17 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
     onNodeClick(node.id);
   }, [onNodeClick]);
 
-
+  const handleNodeRightClick = useCallback((node: any, event: MouseEvent) => {
+    // Prevent context menu
+    event.preventDefault();
+    
+    // Right click - show explore modal
+    onNodeRightClick(node.id);
+  }, [onNodeRightClick]);
 
   // Cleanup on unmount or graph data change
   useEffect(() => {
     return () => {
-      // Clean up all mist on unmount
       mistLinesRef.current.forEach(mist => {
         if (fgRef.current) {
           fgRef.current.scene().remove(mist);
@@ -200,8 +180,7 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
       });
       mistLinesRef.current.clear();
     };
-  }, [graphData.nodes.length]); // Re-run cleanup when node count changes
-
+  }, [graphData.nodes.length]);
 
   return (
     <div ref={containerRef} className="w-full h-full bg-abyss cursor-move">
@@ -210,7 +189,6 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
         graphData={graphData}
         backgroundColor="#02020B"
         showNavInfo={false}
-
         enableNodeDrag={false}
         
         nodeLabel="label"
@@ -231,6 +209,7 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
 
         linkVisibility={false}
         onNodeClick={handleNodeClick}
+        onNodeRightClick={handleNodeRightClick}
         
         warmupTicks={120}
         cooldownTicks={Infinity}

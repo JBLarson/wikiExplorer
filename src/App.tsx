@@ -115,7 +115,17 @@ function AppContent() {
     }
   }, [nodes, addNode, addEdge, setSelectedNode, addToHistory, setRootNode, setLoading]);
 
+  // Left click handler - expand graph
   const handleNodeClick = useCallback((nodeId: string) => {
+    const node = nodes.find(n => n.id === nodeId);
+    if (!node) return;
+
+    setSelectedNode(nodeId);
+    loadArticle(node.label, node.depth);
+  }, [nodes, loadArticle, setSelectedNode]);
+
+  // Right click handler - show explore modal
+  const handleNodeRightClick = useCallback((nodeId: string) => {
     const node = nodes.find(n => n.id === nodeId);
     if (!node) return;
 
@@ -124,12 +134,10 @@ function AppContent() {
     fetchArticleSummary(node.label)
       .then(article => {
         setModalArticle(article);
-        setSelectedNode(nodeId);
-        loadArticle(node.label, node.depth);
       })
       .catch(err => setError(err.message))
       .finally(() => setLoading(false));
-  }, [nodes, loadArticle, setSelectedNode, setLoading]);
+  }, [nodes, setLoading]);
 
   const handleSearch = useCallback((query: string) => {
     clearGraph();
@@ -185,7 +193,10 @@ function AppContent() {
 
       {/* Main Workspace */}
       <div className="flex-1 relative overflow-hidden">
-        <GraphCanvas onNodeClick={handleNodeClick} />
+        <GraphCanvas 
+          onNodeClick={handleNodeClick}
+          onNodeRightClick={handleNodeRightClick}
+        />
         
         {/* Empty State */}
         {nodes.length === 0 && !isLoading && (
