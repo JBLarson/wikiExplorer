@@ -3,6 +3,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { GraphCanvas } from './components/GraphCanvas';
 import { RefreshButton } from './components/RefreshButton';
 import { SearchBar } from './components/SearchBar';
+import { GraphStatsModal } from './components/modals/GraphStats';
+import { StatsButton } from './components/StatsButton';
 import { Counter } from './components/Counter';
 import { ExploreModal } from './components/modals/Explore';
 import { useGraphStore } from './stores/graphStore';
@@ -28,6 +30,7 @@ interface NodeLinkCache {
 function AppContent() {
   const {
     nodes,
+    edges,
     addNode,
     addEdge,
     setSelectedNode,
@@ -40,6 +43,8 @@ function AppContent() {
   } = useGraphStore();
 
   const [modalArticle, setModalArticle] = useState<WikiArticle | null>(null);
+  const [showStatsModal, setShowStatsModal] = useState(false);
+
   const [backendOnline, setBackendOnline] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
   
@@ -412,12 +417,44 @@ function AppContent() {
     }
   }, [nodes, setLoading]);
 
+
+
+
+  // Handle clicking a node from the stats modal
+    const handleStatsNodeClick = useCallback((nodeId: string) => {
+      const node = nodes.find(n => n.id === nodeId);
+      if (!node) return;
+
+      setSelectedNode(nodeId);
+      
+      // Focus camera on the node
+      // The GraphCanvas will handle the camera movement via selectedNode
+    }, [nodes, setSelectedNode]);
+
+    // ESC key to close stats modal
+    useEffect(() => {
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.key === 'Escape' && showStatsModal) {
+          setShowStatsModal(false);
+        }
+      };
+      
+      window.addEventListener('keydown', handleKeyDown);
+      return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [showStatsModal]);
+
+
+
+
   const handleSearch = useCallback((query: string) => {
     clearGraph();
     linkCacheRef.current.clear();  // Clear cache on new search
     setError(null);
     loadArticle(query, 0);
   }, [clearGraph, loadArticle]);
+
+
+
 
   return (
     <div className="flex flex-col h-screen w-screen bg-abyss font-sans text-gray-100 overflow-hidden">
@@ -446,6 +483,8 @@ function AppContent() {
           {/* Center Search */}
           <div className="flex-1 max-w-2xl px-8 pointer-events-auto flex items-center gap-3">
             <RefreshButton onRefresh={handleHardRefresh} />
+            <StatsButton onOpenStats={() => setShowStatsModal(true)} nodeCount={nodes.length} />
+
             <SearchBar onSearch={handleSearch} isLoading={isLoading} />
           </div>
 
@@ -492,6 +531,15 @@ function AppContent() {
         <ExploreModal 
           article={modalArticle} 
           onClose={() => setModalArticle(null)} 
+        />
+      )}
+      {/* Stats Modal */}
+      {showStatsModal && (
+        <GraphStatsModal
+          nodes={nodes}
+          edges={edges}
+          onClose={() => setShowStatsModal(false)}
+          onNodeClick={handleStatsNodeClick}
         />
       )}
     </div>
