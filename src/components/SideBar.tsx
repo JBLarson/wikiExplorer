@@ -1,3 +1,4 @@
+// @refresh reset
 import { useGraphStore } from '../stores/graphStore';
 import type { WikiArticle } from '../types';
 import { ArrowTopRightOnSquareIcon, ChartBarIcon, LinkIcon } from '@heroicons/react/24/outline';
@@ -32,13 +33,12 @@ export function Sidebar({ selectedArticle, isLoading }: SidebarProps) {
 
   return (
     <div className="w-96 h-full bg-abyss-surface/80 backdrop-blur-xl border-l border-abyss-border flex flex-col shadow-glass z-30 text-gray-100">
-      
       {/* Content Area */}
       <div className="flex-1 overflow-y-auto custom-scrollbar">
         {isLoading && !selectedArticle ? (
           <SkeletonLoader />
         ) : selectedArticle ? (
-          <div className="p-6 animate-fade-in space-y-6">
+          <div className="pt-8 px-6 pb-6 animate-fade-in space-y-6">
             
             {/* Header */}
             <div className="space-y-2">

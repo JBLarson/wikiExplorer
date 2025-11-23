@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { GraphCanvas } from './components/GraphCanvas';
 import { SearchBar } from './components/SearchBar';
-import { Sidebar } from './components/Sidebar';
+import { Sidebar } from './components/SideBar';
 import { useGraphStore } from './stores/graphStore';
 import { fetchArticleSummary, fetchArticleLinks, checkBackendHealth } from './lib/wikipedia';
 import type { WikiArticle } from './types';
@@ -147,7 +147,9 @@ function AppContent() {
     clearGraph();
     setSelectedArticle(null);
     setError(null);
-    loadArticle(query, 0);
+    setTimeout(() => {
+      loadArticle(query, 0);
+    }, 100);
   }, [clearGraph, loadArticle]);
 
   return (
@@ -197,10 +199,9 @@ function AppContent() {
       )}
 
       {/* Main Workspace */}
-      <div className="flex-1 flex overflow-hidden relative z-0">
+      <div className="flex-1 flex flex-row overflow-hidden relative z-0">
         <div className="flex-1 relative">
-          <GraphCanvas onNodeClick={handleNodeClick} />
-          
+          <GraphCanvas onNodeClick={handleNodeClick} />          
           {/* Empty State / Initial Loading */}
           {nodes.length === 0 && !isLoading && (
             <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">

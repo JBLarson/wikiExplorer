@@ -1,3 +1,4 @@
+// @refresh reset
 import * as THREE from 'three';
 import { starVertexShader, starFragmentShader } from './Shaders';
 

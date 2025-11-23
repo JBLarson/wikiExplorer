@@ -1,3 +1,4 @@
+// @refresh reset
 import { useEffect, useRef, useCallback, useMemo } from 'react';
 import ForceGraph3D, { ForceGraphMethods } from 'react-force-graph-3d';
 import { useGraphStore } from '../stores/graphStore';
@@ -67,22 +68,34 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
     };
   }, []);
 
+
+
+
+
+
   // Create volumetric mist connections
   useEffect(() => {
-    if (!fgRef.current || graphData.links.length === 0) return;
+    if (!fgRef.current) return;
     
     const scene = fgRef.current.scene();
     
-    // Clear old mist
+    // ALWAYS clear ALL existing mist first, synchronously
     mistLinesRef.current.forEach(mist => {
       scene.remove(mist);
       mist.geometry.dispose();
-      (mist.material as THREE.Material).dispose();
+      if (Array.isArray(mist.material)) {
+        mist.material.forEach(m => m.dispose());
+      } else {
+        (mist.material as THREE.Material).dispose();
+      }
     });
     mistLinesRef.current.clear();
+    
+    // If no links, we're done
+    if (graphData.links.length === 0) return;
 
     // Wait for force-graph to position nodes
-    setTimeout(() => {
+    const timeoutId = setTimeout(() => {
       if (!fgRef.current) return;
 
       // Store node positions
@@ -94,6 +107,7 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
         }
       });
 
+      console.log(`🎨 Found positions for ${nodePositions.size}/${graphData.nodes.length} nodes`);
 
       // Create mist for each edge
       graphData.links.forEach((link, index) => {
@@ -104,6 +118,7 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
         const targetPos = nodePositions.get(targetId);
         
         if (!sourcePos || !targetPos) {
+          console.log(`⚠️ Skip link ${sourceId} -> ${targetId}`);
           return;
         }
 
@@ -112,8 +127,10 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
         
         const edgeKey = `${sourceId}-${targetId}`;
         mistLinesRef.current.set(edgeKey, mist);
+        console.log(`✨ Created mist for ${sourceId} -> ${targetId}`);
       });
 
+      console.log(`🌟 Created ${mistLinesRef.current.size} mist connections`);
 
       // Animate mist
       const mistAnimationLoop = () => {
@@ -123,7 +140,27 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
       mistAnimationLoop();
     }, 2000);
 
+    // Cleanup function
+    return () => {
+      clearTimeout(timeoutId);
+      // Clear mist when effect re-runs
+      mistLinesRef.current.forEach(mist => {
+        scene.remove(mist);
+        mist.geometry.dispose();
+        if (Array.isArray(mist.material)) {
+          mist.material.forEach(m => m.dispose());
+        } else {
+          (mist.material as THREE.Material).dispose();
+        }
+      });
+      mistLinesRef.current.clear();
+    };
   }, [graphData.links, graphData.nodes]);
+
+
+
+
+
 
   // Configure force simulation
   useEffect(() => {
@@ -147,6 +184,28 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
     }
     onNodeClick(node.id);
   }, [onNodeClick]);
+
+
+
+  // Cleanup on unmount or graph data change
+  useEffect(() => {
+    return () => {
+      // Clean up all mist on unmount
+      mistLinesRef.current.forEach(mist => {
+        if (fgRef.current) {
+          fgRef.current.scene().remove(mist);
+        }
+        mist.geometry.dispose();
+        if (Array.isArray(mist.material)) {
+          mist.material.forEach(m => m.dispose());
+        } else {
+          (mist.material as THREE.Material).dispose();
+        }
+      });
+      mistLinesRef.current.clear();
+    };
+  }, [graphData.nodes.length]); // Re-run cleanup when node count changes
+
 
   return (
     <div ref={containerRef} className="w-full h-full bg-abyss cursor-move">

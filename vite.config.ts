@@ -18,10 +18,15 @@ export default defineConfig({
       output: {
         manualChunks: {
           'vendor': ['react', 'react-dom'],
-          'graph': ['cytoscape'],
+          'graph': ['react-force-graph-3d'],
           'state': ['zustand', '@tanstack/react-query'],
         }
       }
     }
+  },
+  // Force cache invalidation on dev server restart
+  cacheDir: '.vite',
+  optimizeDeps: {
+    force: true  // Force re-optimization on restart
   }
 })

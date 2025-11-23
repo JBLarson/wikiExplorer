@@ -1,3 +1,4 @@
+// @refresh reset
 export const starVertexShader = `
   attribute float size;
   attribute vec3 color;

@@ -1,3 +1,4 @@
+// @refresh reset
 import * as THREE from 'three';
 import { mistVertexShader, mistFragmentShader } from './Shaders';
 
@@ -8,7 +9,7 @@ interface MistConfig {
 }
 
 const DEFAULT_CONFIG: MistConfig = {
-  particleCount: 200,
+  particleCount: 300,
   spreadRadius: 3,
   baseSize: 2,
 };
