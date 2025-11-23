@@ -11,15 +11,6 @@ export class WikiAPIError extends Error {
 }
 
 export async function fetchArticleSummary(title: string): Promise<WikiArticle> {
-  // Return mock data for test nodes
-  if (title.startsWith('Test Node')) {
-    return {
-      title: title,
-      extract: 'This is a test node for Three.js development.',
-      url: 'https://en.wikipedia.org',
-    };
-  }
-
   const encodedTitle = encodeURIComponent(title.replace(/ /g, '_'));
   
   try {
@@ -51,8 +42,9 @@ export async function fetchArticleSummary(title: string): Promise<WikiArticle> {
 
 interface BackendResponse {
   results: Array<{ title: string; score: number }>;
-  cross_edges: Array<{ source: number; target: number; score: number }>;
+  cross_edges: Array<{ source: string; target: string; score: number }>; 
 }
+
 
 export async function fetchArticleLinks(
   title: string,
@@ -61,21 +53,59 @@ export async function fetchArticleLinks(
   k: number = 7
 ): Promise<{ links: WikiLink[]; crossEdges: GraphEdge[] }> {
   
-  // TEST MODE: Generate unique test nodes
-  const links: WikiLink[] = [];
-  const timestamp = Date.now();
+  // Normalize to underscored format for backend
+  const query = encodeURIComponent(title.replace(/ /g, '_'));
   
-  for (let i = 0; i < k; i++) {
-    const testTitle = `Test Node ${timestamp}-${i}`;
-    links.push({
-      title: testTitle,
-      score: Math.random()
-    });
-  }
+  // IMPORTANT: Send underscored IDs to backend
+  const contextParam = existingNodeIds.length > 0 
+    ? existingNodeIds.map(id => id.replace(/ /g, '_')).join(',') 
+    : '';
+  
+  try {
+    const response = await fetch(
+      `${BACKEND_API_BASE}/related/${query}?k=${k}&context=${contextParam}`
+    );
 
-  const crossEdges: GraphEdge[] = [];
-  return { links, crossEdges };
+    if (!response.ok) {
+      console.error('Backend API error:', response.status);
+      return { links: [], crossEdges: [] };
+    }
+
+    const data: BackendResponse = await response.json();
+
+    // Process new links - normalize titles for comparison
+    const normalizedExistingLabels = existingNodeLabels.map(l => l.toLowerCase().replace(/ /g, '_'));
+    
+    const links: WikiLink[] = data.results
+      .map((item) => ({
+        title: item.title.replace(/_/g, ' '),  // Display format
+        score: item.score,
+      }))
+      .filter((link) => {
+        const normalized = link.title.toLowerCase().replace(/ /g, '_');
+        return !normalizedExistingLabels.includes(normalized);
+      });
+
+    const crossEdges: GraphEdge[] = (data.cross_edges || []).map((edge) => ({
+      id: `cross-${edge.source}-${edge.target}`,
+      source: edge.source,
+      target: edge.target,
+      score: edge.score
+    }));
+
+    return { links, crossEdges };
+
+  } catch (error) {
+    console.error('Error fetching related articles:', error);
+    return { links: [], crossEdges: [] };
+  }
 }
+
+  
+
+
+
+
 
 export async function checkBackendHealth(): Promise<boolean> {
   try {

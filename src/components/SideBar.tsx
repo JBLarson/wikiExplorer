@@ -23,17 +23,19 @@ function SkeletonLoader() {
     </div>
   );
 }
-
 export function Sidebar({ selectedArticle, isLoading }: SidebarProps) {
-  const { nodes, edges, rootNode } = useGraphStore();
+  const { nodes, edges, rootNode, selectedNode } = useGraphStore();
   const rootNodeData = nodes.find(n => n.id === rootNode);
+  
+  // Find the currently selected node
+  const currentNode = nodes.find(n => n.id === selectedNode);
 
   return (
     <div className="w-96 h-full bg-abyss-surface/80 backdrop-blur-xl border-l border-abyss-border flex flex-col shadow-glass z-30 text-gray-100">
       
       {/* Content Area */}
       <div className="flex-1 overflow-y-auto custom-scrollbar">
-        {isLoading ? (
+        {isLoading && !selectedArticle ? (
           <SkeletonLoader />
         ) : selectedArticle ? (
           <div className="p-6 animate-fade-in space-y-6">
@@ -76,6 +78,16 @@ export function Sidebar({ selectedArticle, isLoading }: SidebarProps) {
               <span className="text-sm font-semibold">Read on Wikipedia</span>
               <ArrowTopRightOnSquareIcon className="w-4 h-4 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
             </a>
+          </div>
+        ) : currentNode ? (
+          // Show basic info if we have the node but no full article yet
+          <div className="p-6 space-y-6">
+            <div className="space-y-2">
+              <h2 className="text-2xl font-bold text-white leading-tight">
+                {currentNode.label}
+              </h2>
+              <p className="text-sm text-gray-400">Loading details...</p>
+            </div>
           </div>
         ) : (
           <div className="h-full flex flex-col items-center justify-center p-8 text-center opacity-60">

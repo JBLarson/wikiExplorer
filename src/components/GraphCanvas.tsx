@@ -1,37 +1,31 @@
 import { useEffect, useRef, useCallback, useMemo } from 'react';
-import ForceGraph3D, {ForceGraphMethods } from 'react-force-graph-3d';
+import ForceGraph3D, { ForceGraphMethods } from 'react-force-graph-3d';
 import { useGraphStore } from '../stores/graphStore';
-import SpriteText from 'three-spritetext';
 import * as THREE from 'three';
+import { createAtmosphericParticles, setupLighting, setupFog } from './graph/SceneSetup';
+import { createMistConnection, animateMist } from './graph/MistEffect';
+import { createNodeObject } from './graph/NodeRenderer';
 
 interface GraphCanvasProps {
   onNodeClick: (nodeId: string) => void;
 }
 
-// Deep Semantic Gradient
-const DEPTH_COLORS = [
-  '#F43F5E', // Root: Rose (High Impact)
-  '#A855F7', // Depth 1: Purple
-  '#6366F1', // Depth 2: Indigo
-  '#3B82F6', // Depth 3: Blue
-  '#14B8A6', // Depth 4: Teal
-  '#10B981', // Depth 5+: Emerald
-];
-
 export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
   const fgRef = useRef<ForceGraphMethods>();
   const containerRef = useRef<HTMLDivElement>(null);
+  const mistLinesRef = useRef<Map<string, THREE.Points>>(new Map());
+  const timeRef = useRef(0);
+  const animationFrameRef = useRef<number>();
   
   const { nodes, edges, selectedNode, rootNode } = useGraphStore();
 
-  // Prepare Graph Data
   const graphData = useMemo(() => {
     return {
       nodes: nodes.map(n => ({ 
         id: n.id, 
         group: n.depth,
         label: n.label,
-        val: n.id === rootNode ? 30 : 15 - (Math.min(n.depth, 5) * 1.5) // Size scaling
+        val: n.id === rootNode ? 50 : 35 - (Math.min(n.depth, 5) * 2)
       })),
       links: edges.map(e => ({ 
         source: e.source, 
@@ -40,27 +34,115 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
     };
   }, [nodes, edges, rootNode]);
 
-  // Physics Tuning for "Graceful Spacing"
+  // Initialize scene environment
+  useEffect(() => {
+    if (!fgRef.current) return;
+    const scene = fgRef.current.scene();
+    
+    // Setup atmospheric particles
+    const { stars, material: starMaterial } = createAtmosphericParticles();
+    scene.add(stars);
+
+    // Setup lighting
+    setupLighting(scene);
+
+    // Setup fog
+    setupFog(scene);
+
+    // Animation loop for environment
+    const animate = () => {
+      timeRef.current += 0.008;
+      starMaterial.uniforms.time.value = timeRef.current;
+      animationFrameRef.current = requestAnimationFrame(animate);
+    };
+    animate();
+
+    return () => {
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+      scene.remove(stars);
+      stars.geometry.dispose();
+      starMaterial.dispose();
+    };
+  }, []);
+
+  // Create volumetric mist connections
+  useEffect(() => {
+    if (!fgRef.current || graphData.links.length === 0) return;
+    
+    const scene = fgRef.current.scene();
+    
+    // Clear old mist
+    mistLinesRef.current.forEach(mist => {
+      scene.remove(mist);
+      mist.geometry.dispose();
+      (mist.material as THREE.Material).dispose();
+    });
+    mistLinesRef.current.clear();
+
+    // Wait for force-graph to position nodes
+    setTimeout(() => {
+      if (!fgRef.current) return;
+
+      // Store node positions
+      const nodePositions = new Map<string, THREE.Vector3>();
+      graphData.nodes.forEach(node => {
+        const nodeData = node as any;
+        if (typeof nodeData.x === 'number' && typeof nodeData.y === 'number' && typeof nodeData.z === 'number') {
+          nodePositions.set(node.id, new THREE.Vector3(nodeData.x, nodeData.y, nodeData.z));
+        }
+      });
+
+
+      // Create mist for each edge
+      graphData.links.forEach((link, index) => {
+        const sourceId = typeof link.source === 'object' && link.source !== null ? (link.source as any).id : link.source as string;
+        const targetId = typeof link.target === 'object' && link.target !== null ? (link.target as any).id : link.target as string;
+        
+        const sourcePos = nodePositions.get(sourceId);
+        const targetPos = nodePositions.get(targetId);
+        
+        if (!sourcePos || !targetPos) {
+          return;
+        }
+
+        const mist = createMistConnection(sourcePos, targetPos, timeRef.current + index * 0.5);
+        scene.add(mist);
+        
+        const edgeKey = `${sourceId}-${targetId}`;
+        mistLinesRef.current.set(edgeKey, mist);
+      });
+
+
+      // Animate mist
+      const mistAnimationLoop = () => {
+        animateMist(mistLinesRef.current, 0.012);
+        requestAnimationFrame(mistAnimationLoop);
+      };
+      mistAnimationLoop();
+    }, 2000);
+
+  }, [graphData.links, graphData.nodes]);
+
+  // Configure force simulation
   useEffect(() => {
     if (fgRef.current) {
-      // Strong repulsion to prevent clumping
-      fgRef.current.d3Force('charge')?.strength(-200); 
-      // Longer links to allow breathing room
-      fgRef.current.d3Force('link')?.distance(90);
-      // Gentle centering
-      fgRef.current.d3Force('center')?.strength(0.5);
+      fgRef.current.d3Force('charge')?.strength(-250);
+      fgRef.current.d3Force('link')?.distance(100);
+      fgRef.current.d3Force('center')?.strength(0.15);
     }
   }, []);
 
   const handleNodeClick = useCallback((node: any) => {
-    const distance = 180;
+    const distance = 220;
     const distRatio = 1 + distance / Math.hypot(node.x, node.y, node.z);
 
     if (fgRef.current) {
       fgRef.current.cameraPosition(
         { x: node.x * distRatio, y: node.y * distRatio, z: node.z * distRatio },
-        node, 
-        2500
+        node,
+        1800
       );
     }
     onNodeClick(node.id);
@@ -73,69 +155,31 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
         graphData={graphData}
         backgroundColor="#02020B"
         showNavInfo={false}
+
+        enableNodeDrag={false}
         
-        // Nodes
         nodeLabel="label"
-        nodeRelSize={8}
+        nodeRelSize={7}
         nodeResolution={24}
         nodeOpacity={1}
         
-        // Custom ThreeJS Object for FAANG Quality
         nodeThreeObject={(node: any) => {
-          const depthIndex = Math.min(node.group, DEPTH_COLORS.length - 1);
-          const baseColor = DEPTH_COLORS[depthIndex];
-          const isSelected = node.id === selectedNode;
-
-          const group = new THREE.Group();
-
-          // 1. The Core Sphere (Physical Material for sheen)
-          const geometry = new THREE.SphereGeometry(node.val * 0.5, 32, 32);
-          const material = new THREE.MeshPhysicalMaterial({
-            color: isSelected ? '#FFFFFF' : baseColor,
-            emissive: baseColor,
-            emissiveIntensity: isSelected ? 0.8 : 0.3,
-            roughness: 0.1,
-            metalness: 0.1,
-            clearcoat: 1.0,
-            clearcoatRoughness: 0.1,
+          return createNodeObject({
+            id: node.id,
+            label: node.label,
+            group: node.group,
+            val: node.val,
+            isSelected: node.id === selectedNode,
+            isRoot: node.id === rootNode,
           });
-          const mesh = new THREE.Mesh(geometry, material);
-          group.add(mesh);
-
-          // 2. The Label (Sprite)
-          // OFFSET VERTICALLY to ensure full visibility
-          const sprite = new SpriteText(node.label);
-          sprite.color = isSelected ? '#FFFFFF' : '#E2E8F0'; // Slate-200 normally
-          sprite.textHeight = 5 + (node.val * 0.1); // Scale text with node importance
-          sprite.fontFace = 'Inter';
-          sprite.fontWeight = '600';
-          sprite.backgroundColor = 'rgba(2, 2, 11, 0.6)'; // Semi-transparent background for legibility
-          sprite.padding = 2;
-          sprite.borderRadius = 4;
-          
-          // The Magic Fix: Position text 1.5x radius above the node
-          sprite.position.set(0, node.val * 0.8 + 8, 0);
-          
-          group.add(sprite);
-
-          return group;
         }}
 
-        // Links
-        linkColor={() => '#2d314d'}
-        linkWidth={1.5}
-        linkOpacity={0.2}
-        linkDirectionalParticles={node => node.id === selectedNode ? 4 : 2}
-        linkDirectionalParticleWidth={2}
-        linkDirectionalParticleSpeed={0.005}
-        linkDirectionalParticleColor={() => '#6366F1'} // Brand glow
-
-        // Interaction
+        linkVisibility={false}
         onNodeClick={handleNodeClick}
         
-        // Engine
-        warmupTicks={100}
-        cooldownTicks={Infinity} // Keep animating slightly
+        warmupTicks={120}
+        cooldownTicks={Infinity}
+        cooldownTime={20000}
       />
     </div>
   );
