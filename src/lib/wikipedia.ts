@@ -103,6 +103,53 @@ export async function fetchArticleLinks(
 
   
 
+export async function fetchArticleFullText(title: string): Promise<string> {
+  const encodedTitle = encodeURIComponent(title.replace(/ /g, '_'));
+  
+  try {
+    // Use the Wikipedia API's text extracts module for longer content
+    const response = await fetch(
+      `https://en.wikipedia.org/w/api.php?` +
+      `action=query&format=json&origin=*&` +
+      `prop=extracts&exintro=false&explaintext=true&` +
+      `titles=${encodedTitle}&redirects=1`
+    );
+
+    if (!response.ok) {
+      throw new WikiAPIError(
+        `Failed to fetch full text for "${title}"`,
+        response.status
+      );
+    }
+
+    const data = await response.json();
+    const pages = data.query.pages;
+    const pageId = Object.keys(pages)[0];
+    
+    if (pageId === '-1') {
+      throw new WikiAPIError(`Article "${title}" not found`, 404);
+    }
+
+    return pages[pageId].extract || 'No content available.';
+  } catch (error) {
+    if (error instanceof WikiAPIError) throw error;
+    
+    throw new WikiAPIError(
+      `Network error while fetching full text for "${title}": ${error instanceof Error ? error.message : 'Unknown error'}`
+    );
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
 
 
 

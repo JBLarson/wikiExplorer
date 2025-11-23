@@ -1,6 +1,7 @@
 export interface WikiArticle {
   title: string;
   extract: string;
+  fullText?: string; 
   thumbnail?: string;
   url: string;
 }

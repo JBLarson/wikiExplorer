@@ -1,5 +1,6 @@
+import { useState } from 'react';
 import { WikiArticle } from '../../types';
-import { ArrowTopRightOnSquareIcon, XMarkIcon } from '@heroicons/react/24/outline';
+import { ArrowTopRightOnSquareIcon, XMarkIcon, DocumentTextIcon } from '@heroicons/react/24/outline';
 
 interface ExploreModalProps {
   article: WikiArticle;
@@ -7,6 +8,8 @@ interface ExploreModalProps {
 }
 
 export function ExploreModal({ article, onClose }: ExploreModalProps) {
+  const [showFullText, setShowFullText] = useState(false);
+  
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-6 pointer-events-auto">
       {/* Backdrop */}
@@ -45,10 +48,26 @@ export function ExploreModal({ article, onClose }: ExploreModalProps) {
             </div>
           )}
 
+          {/* Text Content Toggle */}
+          {article.fullText && (
+            <div className="flex items-center justify-between">
+              <button
+                onClick={() => setShowFullText(!showFullText)}
+                className="flex items-center gap-2 px-3 py-1.5 text-sm text-brand-glow hover:text-brand-primary border border-abyss-border hover:border-brand-primary/50 rounded-lg transition-all duration-200"
+              >
+                <DocumentTextIcon className="w-4 h-4" />
+                {showFullText ? 'Show Summary' : 'Show Full Text'}
+              </button>
+              <span className="text-xs text-gray-500">
+                {showFullText ? `${Math.ceil(article.fullText.length / 5)} words` : 'Summary view'}
+              </span>
+            </div>
+          )}
+
           {/* Extract */}
           <div className="prose prose-invert prose-sm max-w-none">
-            <p className="text-gray-300 leading-relaxed">
-              {article.extract}
+            <p className="text-gray-300 leading-relaxed whitespace-pre-line">
+              {showFullText && article.fullText ? article.fullText : article.extract}
             </p>
           </div>
 

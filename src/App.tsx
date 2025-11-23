@@ -5,7 +5,7 @@ import { SearchBar } from './components/SearchBar';
 import { Counter } from './components/Counter';
 import { ExploreModal } from './components/modals/Explore';
 import { useGraphStore } from './stores/graphStore';
-import { fetchArticleSummary, fetchArticleLinks, checkBackendHealth } from './lib/wikipedia';
+import { fetchArticleSummary, fetchArticleFullText, fetchArticleLinks, checkBackendHealth } from './lib/wikipedia';
 import type { WikiArticle } from './types';
 import weLogo from './assets/wikiExplorer-logo-300.png';
 
@@ -115,7 +115,13 @@ function AppContent() {
     }
   }, [nodes, addNode, addEdge, setSelectedNode, addToHistory, setRootNode, setLoading]);
 
+
+
+
+  // ---
   // Left click handler - expand graph
+  // ---
+
   const handleNodeClick = useCallback((nodeId: string) => {
     const node = nodes.find(n => n.id === nodeId);
     if (!node) return;
@@ -124,20 +130,36 @@ function AppContent() {
     loadArticle(node.label, node.depth);
   }, [nodes, loadArticle, setSelectedNode]);
 
-  // Right click handler - show explore modal
-  const handleNodeRightClick = useCallback((nodeId: string) => {
+
+
+
+  // ---
+  // Right click handler - show explore modal with full text
+  // ---
+  const handleNodeRightClick = useCallback(async (nodeId: string) => {
     const node = nodes.find(n => n.id === nodeId);
     if (!node) return;
 
     setLoading(true);
     
-    fetchArticleSummary(node.label)
-      .then(article => {
-        setModalArticle(article);
-      })
-      .catch(err => setError(err.message))
-      .finally(() => setLoading(false));
+    try {
+      // First show modal with summary
+      const summary = await fetchArticleSummary(node.label);
+      setModalArticle(summary);
+      setLoading(false);
+      
+      // Then fetch and update with full text in background
+      const fullText = await fetchArticleFullText(node.label);
+      setModalArticle(prev => prev ? { ...prev, fullText } : null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load article');
+      setLoading(false);
+    }
   }, [nodes, setLoading]);
+
+
+
+
 
   const handleSearch = useCallback((query: string) => {
     clearGraph();
