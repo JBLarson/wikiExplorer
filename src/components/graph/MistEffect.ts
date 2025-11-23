@@ -10,7 +10,7 @@ interface MistConfig {
 const DEFAULT_CONFIG: MistConfig = {
   particleCount: 200,
   spreadRadius: 3,
-  baseSize: 2.5,
+  baseSize: 2,
 };
 
 export function createMistConnection(

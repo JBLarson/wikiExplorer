@@ -94,7 +94,6 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
         }
       });
 
-      console.log(`🎨 Found positions for ${nodePositions.size}/${graphData.nodes.length} nodes`);
 
       // Create mist for each edge
       graphData.links.forEach((link, index) => {
@@ -105,7 +104,6 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
         const targetPos = nodePositions.get(targetId);
         
         if (!sourcePos || !targetPos) {
-          console.log(`⚠️ Skip link ${sourceId} -> ${targetId}`);
           return;
         }
 
@@ -114,10 +112,8 @@ export function GraphCanvas({ onNodeClick }: GraphCanvasProps) {
         
         const edgeKey = `${sourceId}-${targetId}`;
         mistLinesRef.current.set(edgeKey, mist);
-        console.log(`✨ Created mist for ${sourceId} -> ${targetId}`);
       });
 
-      console.log(`🌟 Created ${mistLinesRef.current.size} mist connections`);
 
       // Animate mist
       const mistAnimationLoop = () => {
