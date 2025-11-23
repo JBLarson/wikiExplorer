@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { GraphCanvas } from './components/GraphCanvas';
+import { RefreshButton } from './components/RefreshButton';
 import { SearchBar } from './components/SearchBar';
 import { Counter } from './components/Counter';
 import { ExploreModal } from './components/modals/Explore';
@@ -48,6 +49,42 @@ function AppContent() {
   useEffect(() => {
     checkBackendHealth().then(setBackendOnline);
   }, []);
+
+
+
+    // Hard refresh handler
+    const handleHardRefresh = useCallback(() => {
+      // 1. Clear React Query cache
+      queryClient.clear();
+      
+      // 2. Clear app state
+      clearGraph();
+      linkCacheRef.current.clear();
+      setModalArticle(null);
+      setError(null);
+      
+      // 3. Clear service workers if present
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then(registrations => {
+          registrations.forEach(registration => registration.unregister());
+        });
+      }
+      
+      // 4. Clear sessionStorage and localStorage (be careful with this)
+      try {
+        sessionStorage.clear();
+        // Only clear app-specific localStorage items if you have any
+        // localStorage.clear(); // Uncomment if you want to clear all localStorage
+      } catch (e) {
+        console.warn('Could not clear storage:', e);
+      }
+      
+      // 5. Force reload with cache busting
+      const url = new URL(window.location.href);
+      url.searchParams.set('_t', Date.now().toString());
+      window.location.href = url.toString();
+    }, [clearGraph]);
+
 
 
 
@@ -407,7 +444,8 @@ function AppContent() {
           </div>
 
           {/* Center Search */}
-          <div className="flex-1 max-w-2xl px-8 pointer-events-auto">
+          <div className="flex-1 max-w-2xl px-8 pointer-events-auto flex items-center gap-3">
+            <RefreshButton onRefresh={handleHardRefresh} />
             <SearchBar onSearch={handleSearch} isLoading={isLoading} />
           </div>
 
