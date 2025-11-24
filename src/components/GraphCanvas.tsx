@@ -4,7 +4,7 @@ import ForceGraph3D, { ForceGraphMethods } from 'react-force-graph-3d';
 import { useGraphStore } from '../stores/graphStore';
 import * as THREE from 'three';
 import { createAtmosphericParticles, setupLighting, setupFog } from './graph/SceneSetup';
-import { createMistConnection, animateMist } from './graph/MistEffect';
+import { createMistConnection } from './graph/MistEffect';
 import { createNodeObject } from './graph/NodeRenderer';
 
 interface GraphCanvasProps {
@@ -15,8 +15,11 @@ interface GraphCanvasProps {
 export function GraphCanvas({ onNodeClick, onNodeRightClick }: GraphCanvasProps) {
   const fgRef = useRef<ForceGraphMethods>();
   const containerRef = useRef<HTMLDivElement>(null);
-  const mistLinesRef = useRef<Map<string, THREE.Points>>(new Map());
-  const timeRef = useRef(0);
+  
+  // Shared time uniform for all mist shaders
+  // This allows us to animate thousands of edges by updating one variable
+  const sharedTimeUniform = useRef({ value: 0 });
+  
   const animationFrameRef = useRef<number>();
   
   const { nodes, edges, selectedNode, rootNode } = useGraphStore();
@@ -39,12 +42,11 @@ export function GraphCanvas({ onNodeClick, onNodeRightClick }: GraphCanvasProps)
   // Re-heat simulation when nodes are added
   useEffect(() => {
     if (fgRef.current && nodes.length > 0) {
-      // Reheat the simulation to handle new nodes
       fgRef.current.d3ReheatSimulation();
     }
   }, [nodes.length]);
 
-  // Initialize scene environment
+  // Initialize scene environment and animation loop
   useEffect(() => {
     if (!fgRef.current) return;
     const scene = fgRef.current.scene();
@@ -56,8 +58,12 @@ export function GraphCanvas({ onNodeClick, onNodeRightClick }: GraphCanvasProps)
     setupFog(scene);
 
     const animate = () => {
-      timeRef.current += 0.008;
-      starMaterial.uniforms.time.value = timeRef.current;
+      // Increment global time
+      sharedTimeUniform.current.value += 0.012;
+      
+      // Sync star shader time
+      starMaterial.uniforms.time.value = sharedTimeUniform.current.value;
+      
       animationFrameRef.current = requestAnimationFrame(animate);
     };
     animate();
@@ -72,85 +78,16 @@ export function GraphCanvas({ onNodeClick, onNodeRightClick }: GraphCanvasProps)
     };
   }, []);
 
-  // Create volumetric mist connections
-  useEffect(() => {
-    if (!fgRef.current) return;
-    
-    const scene = fgRef.current.scene();
-    
-    mistLinesRef.current.forEach(mist => {
-      scene.remove(mist);
-      mist.geometry.dispose();
-      if (Array.isArray(mist.material)) {
-        mist.material.forEach(m => m.dispose());
-      } else {
-        (mist.material as THREE.Material).dispose();
-      }
-    });
-    mistLinesRef.current.clear();
-    
-    if (graphData.links.length === 0) return;
-
-    const timeoutId = setTimeout(() => {
-      if (!fgRef.current) return;
-
-      const nodePositions = new Map<string, THREE.Vector3>();
-      graphData.nodes.forEach(node => {
-        const nodeData = node as any;
-        if (typeof nodeData.x === 'number' && typeof nodeData.y === 'number' && typeof nodeData.z === 'number') {
-          nodePositions.set(node.id, new THREE.Vector3(nodeData.x, nodeData.y, nodeData.z));
-        }
-      });
-
-      graphData.links.forEach((link, index) => {
-        const sourceId = typeof link.source === 'object' && link.source !== null ? (link.source as any).id : link.source as string;
-        const targetId = typeof link.target === 'object' && link.target !== null ? (link.target as any).id : link.target as string;
-        
-        const sourcePos = nodePositions.get(sourceId);
-        const targetPos = nodePositions.get(targetId);
-        
-        if (!sourcePos || !targetPos) return;
-
-        const mist = createMistConnection(sourcePos, targetPos, timeRef.current + index * 0.5);
-        scene.add(mist);
-        
-        const edgeKey = `${sourceId}-${targetId}`;
-        mistLinesRef.current.set(edgeKey, mist);
-      });
-
-      const mistAnimationLoop = () => {
-        animateMist(mistLinesRef.current, 0.012);
-        requestAnimationFrame(mistAnimationLoop);
-      };
-      mistAnimationLoop();
-    }, 2000);
-
-    return () => {
-      clearTimeout(timeoutId);
-      mistLinesRef.current.forEach(mist => {
-        scene.remove(mist);
-        mist.geometry.dispose();
-        if (Array.isArray(mist.material)) {
-          mist.material.forEach(m => m.dispose());
-        } else {
-          (mist.material as THREE.Material).dispose();
-        }
-      });
-      mistLinesRef.current.clear();
-    };
-  }, [graphData.links, graphData.nodes]);
-
-  // Configure force simulation with stronger forces
+  // Configure force simulation
   useEffect(() => {
     if (fgRef.current) {
-      fgRef.current.d3Force('charge')?.strength(-400);  // Increased repulsion
-      fgRef.current.d3Force('link')?.distance(150);     // Increased distance
-      fgRef.current.d3Force('center')?.strength(0.2);   // Increased centering
+      fgRef.current.d3Force('charge')?.strength(-400);
+      fgRef.current.d3Force('link')?.distance(150);
+      fgRef.current.d3Force('center')?.strength(0.2);
     }
   }, []);
 
   const handleNodeClick = useCallback((node: any, event: MouseEvent) => {
-    // Left click - expand graph
     const distance = 220;
     const distRatio = 1 + distance / Math.hypot(node.x, node.y, node.z);
 
@@ -165,30 +102,9 @@ export function GraphCanvas({ onNodeClick, onNodeRightClick }: GraphCanvasProps)
   }, [onNodeClick]);
 
   const handleNodeRightClick = useCallback((node: any, event: MouseEvent) => {
-    // Prevent context menu
     event.preventDefault();
-    
-    // Right click - show explore modal
     onNodeRightClick(node.id);
   }, [onNodeRightClick]);
-
-  // Cleanup on unmount or graph data change
-  useEffect(() => {
-    return () => {
-      mistLinesRef.current.forEach(mist => {
-        if (fgRef.current) {
-          fgRef.current.scene().remove(mist);
-        }
-        mist.geometry.dispose();
-        if (Array.isArray(mist.material)) {
-          mist.material.forEach(m => m.dispose());
-        } else {
-          (mist.material as THREE.Material).dispose();
-        }
-      });
-      mistLinesRef.current.clear();
-    };
-  }, [graphData.nodes.length]);
 
   return (
     <div ref={containerRef} className="w-full h-full bg-abyss cursor-move">
@@ -215,7 +131,34 @@ export function GraphCanvas({ onNodeClick, onNodeRightClick }: GraphCanvasProps)
           });
         }}
 
-        linkVisibility={false}
+        // Create the Mist object for each link
+        linkThreeObject={() => {
+          return createMistConnection(sharedTimeUniform.current);
+        }}
+
+        // Update the Mist object every frame to match physics simulation
+        linkPositionUpdate={(obj: any, { start, end }: any) => {
+          // The object is a Three.js Points mesh with a ShaderMaterial
+          const material = obj.material as THREE.ShaderMaterial;
+          
+          // Update the uniforms with the new start/end positions relative to graph space
+          if (material && material.uniforms) {
+            material.uniforms.startPos.value.copy(start);
+            material.uniforms.endPos.value.copy(end);
+          }
+
+          // Reset transforms so the shader works in local coordinate space
+          // This prevents the library from trying to rotate/scale the point cloud
+          // which would fight against our custom vertex shader logic.
+          obj.position.set(0, 0, 0);
+          obj.rotation.set(0, 0, 0);
+          obj.scale.set(1, 1, 1);
+          
+          return true; // Signal that we handled the update
+        }}
+
+        linkVisibility={true} // Must be true to show our custom object
+        
         onNodeClick={handleNodeClick}
         onNodeRightClick={handleNodeRightClick}
         

@@ -36,22 +36,37 @@ export const mistVertexShader = `
   attribute float size;
   attribute vec3 color;
   attribute float alpha;
+  
+  // New attributes for dynamic positioning
+  attribute float t;        // Position along line (0.0 to 1.0)
+  attribute vec3 offset;    // Random spread offset from the center line
+  attribute float timeOffset; // Per-edge random time offset
+
   varying vec3 vColor;
   varying float vAlpha;
+  
   uniform float time;
+  uniform vec3 startPos;    // Dynamic start position
+  uniform vec3 endPos;      // Dynamic end position
   
   void main() {
     vColor = color;
     vAlpha = alpha;
     
-    vec3 pos = position;
+    // Calculate the base position on the line between start and end
+    vec3 center = mix(startPos, endPos, t);
     
-    // Flowing shimmer
-    float flow = sin(time * 1.5 + pos.x * 0.05 + pos.z * 0.05) * 0.3;
+    // Add the random spread offset
+    vec3 pos = center + offset;
+    
+    // Flowing shimmer effect
+    float localTime = time + timeOffset;
+    float flow = sin(localTime * 1.5 + pos.x * 0.05 + pos.z * 0.05) * 0.3;
+    
     pos += vec3(
-      sin(time + pos.y * 0.1) * flow,
-      cos(time + pos.x * 0.1) * flow,
-      sin(time + pos.z * 0.1) * flow
+      sin(localTime + pos.y * 0.1) * flow,
+      cos(localTime + pos.x * 0.1) * flow,
+      sin(localTime + pos.z * 0.1) * flow
     );
     
     vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
