@@ -11,7 +11,7 @@ import { Counter } from './components/Counter';
 import { ExploreModal } from './components/modals/Explore';
 import { useGraphStore } from './stores/graphStore';
 import { fetchArticleSummary, fetchArticleLinks, checkBackendHealth, fetchArticleFullText } from './lib/wikipedia';
-import type { WikiArticle, WikiLink } from './types';
+import type { WikiArticle, WikiLink, SavedGraph } from './types';
 import weLogo from './assets/wikiExplorer-logo-300.png';
 
 const queryClient = new QueryClient({
@@ -44,6 +44,7 @@ function AppContent() {
     setLoading,
     isLoading,
     incrementExpansionCount,
+    rootNode,
   } = useGraphStore();
 
   const [modalArticle, setModalArticle] = useState<WikiArticle | null>(null);
@@ -103,6 +104,73 @@ function AppContent() {
     }, [clearGraph]);
 
 
+
+    const handleRefreshEdges = useCallback(async () => {
+      if (nodes.length === 0) return;
+      
+      setLoading(true);
+      setError(null);
+      
+      try {
+        console.log('Starting edge refresh cycle...');
+        
+        // STEP 1: Save current graph state to memory
+        console.log('Step 1/3: Saving current graph state...');
+        const currentState = useGraphStore.getState();
+        const maxDepth = nodes.length > 0 ? Math.max(...nodes.map(n => n.depth)) : 0;
+        
+        const tempSavedGraph: SavedGraph = {
+          version: '1.0.0',
+          timestamp: Date.now(),
+          name: 'temp_refresh',
+          rootNode: currentState.rootNode,
+          nodes: currentState.nodes,
+          edges: currentState.edges,
+          metadata: {
+            totalNodes: currentState.nodes.length,
+            totalEdges: currentState.edges.length,
+            maxDepth: maxDepth,
+            createdAt: new Date().toISOString(),
+          }
+        };
+        
+        console.log(`✓ Saved graph: ${tempSavedGraph.nodes.length} nodes, ${tempSavedGraph.edges.length} edges`);
+        
+        // STEP 2: Complete teardown
+        console.log('Step 2/3: Clearing everything...');
+        
+        // Clear React Query cache
+        queryClient.clear();
+        
+        // Clear graph state completely
+        clearGraph();
+        
+        // Clear link cache
+        linkCacheRef.current.clear();
+        
+        // Close any open modals
+        setModalArticle(null);
+        
+
+                
+        // STEP 3: Wait a tick for DOM to clear, then reload
+        console.log('Step 3/3: Reloading graph...');
+        
+        // Use a longer delay to ensure Three.js cleanup
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        // Import the saved graph
+        useGraphStore.getState().importGraphFromJSON(tempSavedGraph);
+        
+        console.log('Graph reloaded successfully');
+        
+      } catch (error) {
+        console.error('❌ Error refreshing edges:', error);
+        setError(error instanceof Error ? error.message : 'Failed to refresh edges');
+      } finally {
+        setLoading(false);
+      }
+    }, [nodes, clearGraph, setLoading, queryClient]);
 
 
   // Initial load - fetch article and first batch of related links
@@ -494,7 +562,11 @@ function AppContent() {
 
           {/* Center Search */}
           <div className="flex-1 max-w-2xl px-8 pointer-events-auto flex items-center gap-3">
-            <RefreshButton onRefresh={handleHardRefresh} />
+            <RefreshButton 
+              onRefreshApp={handleHardRefresh}
+              onRefreshEdges={handleRefreshEdges}
+            />
+
             <StatsButton onOpenStats={() => setShowStatsModal(true)} nodeCount={nodes.length} />
             
             

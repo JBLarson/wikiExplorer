@@ -13,19 +13,57 @@ interface NodeWithStats extends GraphNode {
   edgeCount: number;
   incomingEdges: number;
   outgoingEdges: number;
+  neighborConnectivity: number; // Sum of edges held by this node's neighbors
 }
 
 export function GraphStatsModal({ nodes, edges, onClose, onNodeClick }: GraphStatsModalProps) {
   const nodesWithStats = useMemo(() => {
+    // 1. Create a map of NodeID -> Connected Edge Indices for O(1) lookup
+    // This prevents O(N*E) complexity which would slow down large graphs
+    const nodeEdgeMap = new Map<string, GraphEdge[]>();
+    
+    // Initialize map
+    nodes.forEach(node => nodeEdgeMap.set(node.id, []));
+
+    // Populate map
+    edges.forEach(edge => {
+      const sourceList = nodeEdgeMap.get(edge.source);
+      const targetList = nodeEdgeMap.get(edge.target);
+      if (sourceList) sourceList.push(edge);
+      if (targetList) targetList.push(edge);
+    });
+
     const stats: NodeWithStats[] = nodes.map(node => {
-      const outgoing = edges.filter(e => e.source === node.id).length;
-      const incoming = edges.filter(e => e.target === node.id).length;
+      // Get all edges directly connected to this node
+      const myEdges = nodeEdgeMap.get(node.id) || [];
+      
+      const outgoing = myEdges.filter(e => e.source === node.id).length;
+      const incoming = myEdges.filter(e => e.target === node.id).length;
+
+      // Calculate Neighbor Connectivity (2nd Degree impact)
+      // We find all neighbors, then sum up THEIR total edge counts
+      let neighborConnectivity = 0;
+      
+      const neighborIds = new Set<string>();
+      
+      myEdges.forEach(edge => {
+        const neighborId = edge.source === node.id ? edge.target : edge.source;
+        neighborIds.add(neighborId);
+      });
+
+      neighborIds.forEach(nId => {
+        const neighborEdges = nodeEdgeMap.get(nId);
+        if (neighborEdges) {
+          neighborConnectivity += neighborEdges.length;
+        }
+      });
       
       return {
         ...node,
         edgeCount: outgoing + incoming,
         outgoingEdges: outgoing,
         incomingEdges: incoming,
+        neighborConnectivity,
       };
     });
 
@@ -86,6 +124,9 @@ export function GraphStatsModal({ nodes, edges, onClose, onNodeClick }: GraphSta
                 <th className="text-center p-4 text-xs font-semibold text-gray-400 uppercase tracking-wider">
                   Incoming
                 </th>
+                <th className="text-center p-4 text-xs font-semibold text-gray-400 uppercase tracking-wider" title="Total edges connected to this node's neighbors">
+                  Neighbor Conn.
+                </th>
                 <th className="text-center p-4 text-xs font-semibold text-gray-400 uppercase tracking-wider">
                   Expansions
                 </th>
@@ -131,6 +172,9 @@ export function GraphStatsModal({ nodes, edges, onClose, onNodeClick }: GraphSta
                   </td>
                   <td className="p-4 text-center text-gray-300 font-mono text-sm">
                     {node.incomingEdges}
+                  </td>
+                  <td className="p-4 text-center text-emerald-400 font-mono text-sm font-medium">
+                    {node.neighborConnectivity}
                   </td>
                   <td className="p-4 text-center text-gray-400 font-mono text-sm">
                     {node.expansionCount}×
