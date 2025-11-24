@@ -34,3 +34,18 @@ export interface GraphState {
   history: string[];
   isLoading: boolean;
 }
+
+export interface SavedGraph {
+  version: string;
+  timestamp: number;
+  name: string;
+  rootNode: string | null;
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  metadata: {
+    totalNodes: number;
+    totalEdges: number;
+    maxDepth: number;
+    createdAt: string;
+  };
+}

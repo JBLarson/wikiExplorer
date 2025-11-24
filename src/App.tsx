@@ -5,6 +5,8 @@ import { RefreshButton } from './components/RefreshButton';
 import { SearchBar } from './components/SearchBar';
 import { GraphStatsModal } from './components/modals/GraphStats';
 import { StatsButton } from './components/StatsButton';
+import { SaveGraphButton } from './components/SaveGraphButton';
+import { LoadGraphButton } from './components/LoadGraphButton';
 import { Counter } from './components/Counter';
 import { ExploreModal } from './components/modals/Explore';
 import { useGraphStore } from './stores/graphStore';
@@ -20,6 +22,8 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+
 
 // Cache structure to store unused links for each node
 interface NodeLinkCache {
@@ -50,6 +54,14 @@ function AppContent() {
   
   // Cache for storing unused links per node
   const linkCacheRef = useRef<Map<string, NodeLinkCache>>(new Map());
+
+  const handleGraphLoad = useCallback(() => {
+    // Clear the link cache when loading a new graph
+    linkCacheRef.current.clear();
+    setModalArticle(null);
+    setError(null);
+  }, []);
+
 
   useEffect(() => {
     checkBackendHealth().then(setBackendOnline);
@@ -484,8 +496,13 @@ function AppContent() {
           <div className="flex-1 max-w-2xl px-8 pointer-events-auto flex items-center gap-3">
             <RefreshButton onRefresh={handleHardRefresh} />
             <StatsButton onOpenStats={() => setShowStatsModal(true)} nodeCount={nodes.length} />
-
+            
+            
             <SearchBar onSearch={handleSearch} isLoading={isLoading} />
+            <div className="flex flex-row">
+              <SaveGraphButton disabled={nodes.length === 0} />
+              <LoadGraphButton onLoad={handleGraphLoad} />
+            </div>
           </div>
 
           {/* Right Counter */}

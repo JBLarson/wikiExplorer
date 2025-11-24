@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { GraphState, GraphNode, GraphEdge } from '../types';
+import type { GraphState, GraphNode, GraphEdge, SavedGraph } from '../types';
 
 interface GraphStore extends GraphState {
   addNode: (node: GraphNode) => void;
@@ -13,7 +13,12 @@ interface GraphStore extends GraphState {
   getNodeById: (nodeId: string) => GraphNode | undefined;
   getNodesByDepth: (depth: number) => GraphNode[];
   getConnectedNodes: (nodeId: string) => GraphNode[];
-  incrementExpansionCount: (nodeId: string) => void;  // Add this
+  incrementExpansionCount: (nodeId: string) => void;
+  
+  // NEW: Add these methods
+  exportGraphToJSON: (name: string) => void;
+  importGraphFromJSON: (savedGraph: SavedGraph) => void;
+  getGraphMetadata: () => SavedGraph['metadata'];
 }
 
 export const useGraphStore = create<GraphStore>((set, get) => ({
@@ -92,5 +97,80 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
     const edges = get().edges.filter(e => e.source === nodeId || e.target === nodeId);
     const connectedIds = edges.map(e => e.source === nodeId ? e.target : e.source);
     return get().nodes.filter(n => connectedIds.includes(n.id));
+  },
+  
+  // NEW: Export graph to JSON file
+  exportGraphToJSON: (name: string) => {
+    const state = get();
+    
+    const maxDepth = state.nodes.length > 0 
+      ? Math.max(...state.nodes.map(n => n.depth))
+      : 0;
+    
+    const savedGraph: SavedGraph = {
+      version: '1.0.0',
+      timestamp: Date.now(),
+      name: name || 'Untitled Graph',
+      rootNode: state.rootNode,
+      nodes: state.nodes,
+      edges: state.edges,
+      metadata: {
+        totalNodes: state.nodes.length,
+        totalEdges: state.edges.length,
+        maxDepth: maxDepth,
+        createdAt: new Date().toISOString(),
+      }
+    };
+    
+    // Create blob and download
+    const blob = new Blob([JSON.stringify(savedGraph, null, 2)], {
+      type: 'application/json'
+    });
+    
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `wikiExplorer_${name.replace(/\s+/g, '_')}_${Date.now()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  },
+  
+  // NEW: Import graph from JSON
+  importGraphFromJSON: (savedGraph: SavedGraph) => {
+    // Validate version compatibility
+    if (!savedGraph.version || savedGraph.version.split('.')[0] !== '1') {
+      throw new Error('Incompatible graph version');
+    }
+    
+    // Validate required fields
+    if (!savedGraph.nodes || !savedGraph.edges) {
+      throw new Error('Invalid graph data');
+    }
+    
+    set({
+      nodes: savedGraph.nodes,
+      edges: savedGraph.edges,
+      rootNode: savedGraph.rootNode,
+      selectedNode: null,
+      history: [],
+      isLoading: false,
+    });
+  },
+  
+  // NEW: Get current graph metadata
+  getGraphMetadata: () => {
+    const state = get();
+    const maxDepth = state.nodes.length > 0 
+      ? Math.max(...state.nodes.map(n => n.depth))
+      : 0;
+    
+    return {
+      totalNodes: state.nodes.length,
+      totalEdges: state.edges.length,
+      maxDepth: maxDepth,
+      createdAt: new Date().toISOString(),
+    };
   },
 }));
