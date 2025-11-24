@@ -14,6 +14,7 @@ export default defineConfig({
     }
   },
   build: {
+    outDir: 'dist',
     rollupOptions: {
       output: {
         manualChunks: {
@@ -24,9 +25,6 @@ export default defineConfig({
       }
     }
   },
-  // Force cache invalidation on dev server restart
-  cacheDir: '.vite',
-  optimizeDeps: {
-    force: true  // Force re-optimization on restart
-  }
+  // Production base URL - UPDATE THIS to your actual domain
+  base: '/',
 })

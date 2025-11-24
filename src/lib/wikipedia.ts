@@ -1,7 +1,9 @@
 import type { WikiArticle, WikiLink, GraphEdge } from '../types';
 
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001';
+const BACKEND_API_BASE = `${API_BASE_URL}/api`;
 const WIKI_API_BASE = 'https://en.wikipedia.org/api/rest_v1/page/summary';
-const BACKEND_API_BASE = '/api';
+
 
 export class WikiAPIError extends Error {
   constructor(message: string, public statusCode?: number) {
