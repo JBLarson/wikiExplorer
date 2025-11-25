@@ -157,7 +157,16 @@ export function GraphCanvas({ onNodeClick, onNodeRightClick }: GraphCanvasProps)
         backgroundColor="#02020B"
         showNavInfo={false}
         enableNodeDrag={false}
-        
+
+          // Add renderer configuration
+          rendererConfig={{
+            powerPreference: 'high-performance',
+            antialias: true,
+            alpha: false,  // Disable alpha for better performance
+            precision: 'highp',  // High precision shaders
+          }}
+
+
         nodeLabel="label"
         nodeRelSize={7}
         nodeResolution={24}
