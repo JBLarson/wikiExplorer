@@ -45,12 +45,12 @@ export function useArticleLoader() {
         setRootNode(nodeId);
       }
 
-      // Fetch 28 links from backend
+      // Fetch 49 links from backend
       const { links, crossEdges } = await fetchArticleLinks(
         article.title,
         existingNodeLabels,
         existingNodeIds,
-        84
+        49
       );
 
       console.log('📊 Root node links for:', article.title);
