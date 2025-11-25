@@ -14,7 +14,7 @@ body {
   padding: 0;
   width: 100vw;
   height: 100vh;
-  background-color: #02020B; /* abyss-DEFAULT */
+  background-color: #02020B;
   color: #f3f4f6;
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
@@ -26,7 +26,6 @@ body {
   height: 100%;
 }
 
-/* Elegant Scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -37,7 +36,7 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #151528; /* abyss-border */
+  background: #151528;
   border-radius: 99px;
 }
 
@@ -45,8 +44,22 @@ body {
   background: #2d314d;
 }
 
-/* Selection */
 ::selection {
-  background: rgba(99, 102, 241, 0.3); /* brand-primary */
+  background: rgba(99, 102, 241, 0.3);
   color: white;
+}
+
+@keyframes slide-in {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.animate-slide-in {
+  animation: slide-in 0.3s ease-out forwards;
 }
