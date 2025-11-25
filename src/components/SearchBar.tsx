@@ -8,7 +8,7 @@ interface SearchBarProps {
   isLoading?: boolean;
 }
 
-export function SearchBar({ onSearch, placeholder = 'Search the knowledge graph...', isLoading = false }: SearchBarProps) {
+export function SearchBar({ onSearch, placeholder = 'Explore Wikipedia', isLoading = false }: SearchBarProps) {
   const [query, setQuery] = useState('');
   const [isFocused, setIsFocused] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -34,7 +34,7 @@ export function SearchBar({ onSearch, placeholder = 'Search the knowledge graph.
   };
   
   return (
-    <form onSubmit={handleSubmit} className="relative w-full group z-50 max-w-2xl mx-auto">
+    <form onSubmit={handleSubmit} className="relative w-full group z-50 max-w-4xl mx-auto">
       <div className={`
         relative flex items-center
         bg-abyss-surface/90 backdrop-blur-xl

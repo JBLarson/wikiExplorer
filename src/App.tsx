@@ -586,7 +586,7 @@ function AppContent() {
           </div>
 
           {/* Center Search */}
-          <div className="flex-1 max-w-2xl px-8 pointer-events-auto flex items-center gap-3">
+          <div className="flex-1 max-w-4xl px-8 pointer-events-auto flex items-center gap-3">
             <RefreshButton 
               onRefreshApp={handleHardRefresh}
               onRefreshEdges={handleRefreshEdges}
