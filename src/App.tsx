@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { GraphCanvas } from './components/GraphCanvas';
 import { RefreshButton } from './components/RefreshButton';
@@ -10,9 +10,14 @@ import { LoadGraphButton } from './components/LoadGraphButton';
 import { Counter } from './components/Counter';
 import { ExploreModal } from './components/modals/Explore';
 import { useGraphStore } from './stores/graphStore';
-import { fetchArticleSummary, fetchArticleLinks, checkBackendHealth, fetchArticleFullText } from './lib/wikipedia';
-import type { WikiArticle, WikiLink, SavedGraph } from './types';
+import { fetchArticleSummary, fetchArticleFullText, checkBackendHealth } from './lib/wikipedia';
+import { useArticleLoader } from './hooks/useArticleLoader';
+import { useNodeExpander } from './hooks/useNodeExpander';
+import { useGraphRefresh } from './hooks/useGraphRefresh';
+import { linkCache } from './services/linkCache';
+import type { WikiArticle } from './types';
 import weLogo from './assets/wikiExplorer-logo-300.png';
+import { useEffect } from 'react';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -23,461 +28,44 @@ const queryClient = new QueryClient({
   },
 });
 
-// Helper: Calculate physics distance based on semantic similarity score
-// High similarity (1.0) -> Short distance (tight cluster)
-// Low similarity (0.0) -> Long distance (spread out)
-function calculateEdgeDistance(score: number | undefined): number {
-  if (typeof score !== 'number') return 150; // Default if no score
-  
-  // Normalize score if it comes in as 0-100 instead of 0-1
-  // (Though typical vector search returns 0-1)
-  const normalizedScore = score > 1 ? score / 100 : score;
-  
-  // Clamp between 0 and 1 just in case
-  const clampedScore = Math.max(0, Math.min(1, normalizedScore));
-  
-  // Invert: High score = low distance
-  // Base distance: 40 (very close)
-  // Max distance added: 260 (total 300)
-  return 40 + (1 - clampedScore) * 260;
-}
-
-// Cache structure to store unused links for each node
-interface NodeLinkCache {
-  links: WikiLink[];
-  crossEdges: any[];
-}
-
 function AppContent() {
   const {
     nodes,
     edges,
-    addNode,
-    addEdge,
     setSelectedNode,
-    setRootNode,
-    addToHistory,
     clearGraph,
-    setLoading,
     isLoading,
-    incrementExpansionCount,
     rootNode,
   } = useGraphStore();
 
   const [modalArticle, setModalArticle] = useState<WikiArticle | null>(null);
   const [showStatsModal, setShowStatsModal] = useState(false);
-
   const [backendOnline, setBackendOnline] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
-  
-  // Cache for storing unused links per node
-  const linkCacheRef = useRef<Map<string, NodeLinkCache>>(new Map());
 
-  const handleGraphLoad = useCallback(() => {
-    // Clear the link cache when loading a new graph
-    linkCacheRef.current.clear();
-    setModalArticle(null);
-    setError(null);
-  }, []);
-
+  // Custom hooks
+  const { loadArticle } = useArticleLoader();
+  const { expandNode } = useNodeExpander();
+  const { handleHardRefresh, handleRefreshEdges } = useGraphRefresh(
+    queryClient,
+    setModalArticle,
+    setError,
+    useGraphStore.getState().setLoading
+  );
 
   useEffect(() => {
     checkBackendHealth().then(setBackendOnline);
   }, []);
 
-
-
-    // Hard refresh handler
-    const handleHardRefresh = useCallback(() => {
-      // 1. Clear React Query cache
-      queryClient.clear();
-      
-      // 2. Clear app state
-      clearGraph();
-      linkCacheRef.current.clear();
-      setModalArticle(null);
-      setError(null);
-      
-      // 3. Clear service workers if present
-      if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.getRegistrations().then(registrations => {
-          registrations.forEach(registration => registration.unregister());
-        });
-      }
-      
-      // 4. Clear sessionStorage and localStorage (be careful with this)
-      try {
-        sessionStorage.clear();
-        // Only clear app-specific localStorage items if you have any
-        // localStorage.clear(); // Uncomment if you want to clear all localStorage
-      } catch (e) {
-        console.warn('Could not clear storage:', e);
-      }
-      
-      // 5. Force reload with cache busting
-      const url = new URL(window.location.href);
-      url.searchParams.set('_t', Date.now().toString());
-      window.location.href = url.toString();
-    }, [clearGraph]);
-
-
-
-    const handleRefreshEdges = useCallback(async () => {
-      if (nodes.length === 0) return;
-      
-      setLoading(true);
-      setError(null);
-      
-      try {
-        console.log('Starting edge refresh cycle...');
-        
-        // STEP 1: Save current graph state to memory
-        console.log('Step 1/3: Saving current graph state...');
-        const currentState = useGraphStore.getState();
-        const maxDepth = nodes.length > 0 ? Math.max(...nodes.map(n => n.depth)) : 0;
-        
-        const tempSavedGraph: SavedGraph = {
-          version: '1.0.0',
-          timestamp: Date.now(),
-          name: 'temp_refresh',
-          rootNode: currentState.rootNode,
-          nodes: currentState.nodes,
-          edges: currentState.edges,
-          metadata: {
-            totalNodes: currentState.nodes.length,
-            totalEdges: currentState.edges.length,
-            maxDepth: maxDepth,
-            createdAt: new Date().toISOString(),
-          }
-        };
-        
-        console.log(`✓ Saved graph: ${tempSavedGraph.nodes.length} nodes, ${tempSavedGraph.edges.length} edges`);
-        
-        // STEP 2: Complete teardown
-        console.log('Step 2/3: Clearing everything...');
-        
-        // Clear React Query cache
-        queryClient.clear();
-        
-        // Clear graph state completely
-        clearGraph();
-        
-        // Clear link cache
-        linkCacheRef.current.clear();
-        
-        // Close any open modals
-        setModalArticle(null);
-        
-
-                
-        // STEP 3: Wait a tick for DOM to clear, then reload
-        console.log('Step 3/3: Reloading graph...');
-        
-        // Use a longer delay to ensure Three.js cleanup
-        await new Promise(resolve => setTimeout(resolve, 100));
-        
-        // Import the saved graph
-        useGraphStore.getState().importGraphFromJSON(tempSavedGraph);
-        
-        console.log('Graph reloaded successfully');
-        
-      } catch (error) {
-        console.error('❌ Error refreshing edges:', error);
-        setError(error instanceof Error ? error.message : 'Failed to refresh edges');
-      } finally {
-        setLoading(false);
-      }
-    }, [nodes, clearGraph, setLoading, queryClient]);
-
-
-  // Initial load - fetch article and first batch of related links
-  const loadArticle = useCallback(async (title: string, depth: number = 0) => {
-    setLoading(true);
+  const handleGraphLoad = useCallback(() => {
+    linkCache.clear();
+    setModalArticle(null);
     setError(null);
-    
-    const nodeId = title.toLowerCase().replace(/\s+/g, '_');
-    const existingNodeLabels = nodes.map(n => n.label);
-    const existingNodeIds = nodes.map(n => n.id); 
-
-    try {
-      const article = await fetchArticleSummary(title);
-
-      addNode({
-        id: nodeId,
-        label: article.title,
-        data: article,
-        depth,
-        expansionCount: 0,
-      });
-
-      setSelectedNode(nodeId);
-      addToHistory(nodeId);
-
-      if (nodes.length === 0) {
-        setRootNode(nodeId);
-      }
-
-      // Fetch 28 links from backend
-      const { links, crossEdges } = await fetchArticleLinks(
-        article.title,
-        existingNodeLabels, 
-        existingNodeIds, 
-        28
-      );
-
-      // Use first 7 links, cache the rest
-      const linksToDisplay = links.slice(0, 7);
-      const linksToCache = links.slice(7);
-
-      // Cache remaining 21 links (3 batches of 7)
-      linkCacheRef.current.set(nodeId, {
-        links: linksToCache,
-        crossEdges: crossEdges,
-      });
-
-      // STEP 1: Add all child nodes first
-      linksToDisplay.forEach(link => {
-        const linkNodeId = link.title.toLowerCase().replace(/\s+/g, '_');
-        
-        addNode({
-          id: linkNodeId,
-          label: link.title,
-          data: {
-            title: link.title,
-            extract: '',
-            url: `https://en.wikipedia.org/wiki/${encodeURIComponent(link.title.replace(/ /g, '_'))}`,
-          },
-          depth: depth + 1,
-          expansionCount: 0,
-        });
-      });
-
-      // STEP 2: Wait a tick, then add edges
-      setTimeout(() => {
-        const currentNodes = useGraphStore.getState().nodes;
-        const currentEdges = useGraphStore.getState().edges;
-
-        // Add edges from parent to children
-        linksToDisplay.forEach(link => {
-          const linkNodeId = link.title.toLowerCase().replace(/\s+/g, '_');
-          
-          const sourceExists = currentNodes.some(n => n.id === nodeId);
-          const targetExists = currentNodes.some(n => n.id === linkNodeId);
-          
-          if (sourceExists && targetExists) {
-            const edgeId = `${nodeId}-${linkNodeId}`;
-            if (!currentEdges.some(e => e.id === edgeId)) {
-              addEdge({
-                id: edgeId,
-                source: nodeId,
-                target: linkNodeId,
-                score: link.score,
-                // Pre-calculate physics distance
-                distance: calculateEdgeDistance(link.score)
-              });
-            }
-          }
-        });
-
-        // Add cross edges
-        if (crossEdges && crossEdges.length > 0) {
-          crossEdges.forEach(edge => {
-            const sourceId = edge.source.toLowerCase().replace(/\s+/g, '_');
-            const targetId = edge.target.toLowerCase().replace(/\s+/g, '_');
-            
-            const sourceExists = currentNodes.some(n => n.id === sourceId);
-            const targetExists = currentNodes.some(n => n.id === targetId);
-            
-            if (sourceExists && targetExists) {
-              const edgeId = `cross-${sourceId}-${targetId}`;
-              if (!currentEdges.some(e => e.id === edgeId)) {
-                addEdge({
-                  id: edgeId,
-                  source: sourceId,
-                  target: targetId,
-                  score: edge.score,
-                  // Pre-calculate physics distance
-                  distance: calculateEdgeDistance(edge.score)
-                });
-              }
-            }
-          });
-        }
-
-        // Increment expansion count
-        incrementExpansionCount(nodeId);
-      }, 50);
-
-    } catch (error) {
-      console.error('Error loading article:', error);
-      setError(error instanceof Error ? error.message : 'Failed to load article.');
-    } finally {
-      setLoading(false);
-    }
-  }, [nodes, addNode, addEdge, setSelectedNode, addToHistory, setRootNode, setLoading, incrementExpansionCount]);
+  }, []);
 
 
 
 
-
-
-
-
-  // Expand existing node - use cache or fetch new links
-  const expandNode = useCallback(async (nodeId: string) => {
-    const node = nodes.find(n => n.id === nodeId);
-    if (!node) return;
-
-    setLoading(true);
-    setError(null);
-
-    try {
-      const cache = linkCacheRef.current.get(nodeId);
-      let linksToAdd: WikiLink[] = [];
-      let crossEdgesToAdd: any[] = [];
-
-      if (cache && cache.links.length > 0) {
-        // Use cached links (next batch of 7)
-        linksToAdd = cache.links.slice(0, 7);
-        const remainingLinks = cache.links.slice(7);
-
-        // Update cache
-        linkCacheRef.current.set(nodeId, {
-          links: remainingLinks,
-          crossEdges: cache.crossEdges,
-        });
-
-        crossEdgesToAdd = cache.crossEdges;
-        console.log(`✅ Used cached links for ${node.label}. ${remainingLinks.length} links remaining in cache.`);
-
-      } else {
-        // No cache available - fetch new batch of 28 from backend
-        console.log(`🔄 Cache empty for ${node.label}, fetching new batch from backend...`);
-
-        const existingNodeLabels = nodes.map(n => n.label);
-        const existingNodeIds = nodes.map(n => n.id);
-
-        const { links, crossEdges } = await fetchArticleLinks(
-          node.label,
-          existingNodeLabels,
-          existingNodeIds,
-          28
-        );
-
-        if (links.length === 0) {
-          setError(`No more related articles found for "${node.label}"`);
-          setLoading(false);
-          return;
-        }
-
-        // Use first 7, cache the rest
-        linksToAdd = links.slice(0, 7);
-        const linksToCache = links.slice(7);
-
-        // Update cache with new links
-        linkCacheRef.current.set(nodeId, {
-          links: linksToCache,
-          crossEdges: crossEdges,
-        });
-
-        crossEdgesToAdd = crossEdges;
-      }
-
-      // Filter out nodes that already exist
-      const nodesToAdd = linksToAdd.filter(link => {
-        const linkNodeId = link.title.toLowerCase().replace(/\s+/g, '_');
-        return !nodes.some(n => n.id === linkNodeId);
-      });
-
-      // STEP 1: Add all nodes first
-      nodesToAdd.forEach(link => {
-        const linkNodeId = link.title.toLowerCase().replace(/\s+/g, '_');
-        
-        addNode({
-          id: linkNodeId,
-          label: link.title,
-          data: {
-            title: link.title,
-            extract: '',
-            url: `https://en.wikipedia.org/wiki/${encodeURIComponent(link.title.replace(/ /g, '_'))}`,
-          },
-          depth: node.depth + 1,
-          expansionCount: 0,
-        });
-      });
-
-      // STEP 2: Wait a tick for nodes to be registered, then add edges
-      setTimeout(() => {
-        const currentNodes = useGraphStore.getState().nodes;
-        const currentEdges = useGraphStore.getState().edges;
-
-        // Add edges from parent to new children
-        nodesToAdd.forEach(link => {
-          const linkNodeId = link.title.toLowerCase().replace(/\s+/g, '_');
-          
-          // Verify both nodes exist before adding edge
-          const sourceExists = currentNodes.some(n => n.id === nodeId);
-          const targetExists = currentNodes.some(n => n.id === linkNodeId);
-          
-          if (sourceExists && targetExists) {
-            const edgeId = `${nodeId}-${linkNodeId}`;
-            if (!currentEdges.some(e => e.id === edgeId)) {
-              addEdge({
-                id: edgeId,
-                source: nodeId,
-                target: linkNodeId,
-                score: link.score,
-                // Pre-calculate physics distance
-                distance: calculateEdgeDistance(link.score)
-              });
-            }
-          }
-        });
-
-        // Add cross edges (connections between existing nodes)
-        if (crossEdgesToAdd && crossEdgesToAdd.length > 0) {
-          crossEdgesToAdd.forEach(edge => {
-            const sourceId = edge.source.toLowerCase().replace(/\s+/g, '_');
-            const targetId = edge.target.toLowerCase().replace(/\s+/g, '_');
-            
-            // Verify both nodes exist before adding cross edge
-            const sourceExists = currentNodes.some(n => n.id === sourceId);
-            const targetExists = currentNodes.some(n => n.id === targetId);
-            
-            if (sourceExists && targetExists) {
-              const edgeId = `cross-${sourceId}-${targetId}`;
-              if (!currentEdges.some(e => e.id === edgeId)) {
-                addEdge({
-                  id: edgeId,
-                  source: sourceId,
-                  target: targetId,
-                  score: edge.score,
-                  // Pre-calculate physics distance
-                  distance: calculateEdgeDistance(edge.score)
-                });
-              }
-            }
-          });
-        }
-
-        // Increment expansion count after everything is added
-        incrementExpansionCount(nodeId);
-      }, 50); // Small delay to ensure nodes are registered
-
-    } catch (error) {
-      console.error('Error expanding node:', error);
-      setError(error instanceof Error ? error.message : 'Failed to expand node.');
-    } finally {
-      setLoading(false);
-    }
-  }, [nodes, addNode, addEdge, setLoading, incrementExpansionCount]);
-
-
-
-
-
-
-  // Left click handler - expand graph
   const handleNodeClick = useCallback((nodeId: string) => {
     const node = nodes.find(n => n.id === nodeId);
     if (!node) return;
@@ -485,81 +73,69 @@ function AppContent() {
     setSelectedNode(nodeId);
 
     if (node.expansionCount === 0) {
-      // First click - initial load
-      loadArticle(node.label, node.depth);
+      loadArticle(node.label, node.depth, setError);
     } else {
-      // Subsequent clicks - expand with cache or new fetch
-      expandNode(nodeId);
+      expandNode(nodeId, setError);
     }
   }, [nodes, loadArticle, expandNode, setSelectedNode]);
 
 
 
 
-
-
-
-
-  // Right click handler - show explore modal with full text
   const handleNodeRightClick = useCallback(async (nodeId: string) => {
     const node = nodes.find(n => n.id === nodeId);
     if (!node) return;
 
-    setLoading(true);
+    useGraphStore.getState().setLoading(true);
     
     try {
-      // First show modal with summary
+      // Fetch the summary first (this includes extract)
       const summary = await fetchArticleSummary(node.label);
       setModalArticle(summary);
-      setLoading(false);
+      useGraphStore.getState().setLoading(false);
       
       // Then fetch and update with full text in background
       const fullText = await fetchArticleFullText(node.label);
       setModalArticle(prev => prev ? { ...prev, fullText } : null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load article');
-      setLoading(false);
+      useGraphStore.getState().setLoading(false);
     }
-  }, [nodes, setLoading]);
+  }, [nodes]);
 
 
 
 
-  // Handle clicking a node from the stats modal
-    const handleStatsNodeClick = useCallback((nodeId: string) => {
-      const node = nodes.find(n => n.id === nodeId);
-      if (!node) return;
-
-      setSelectedNode(nodeId);
-      
-      // Focus camera on the node
-      // The GraphCanvas will handle the camera movement via selectedNode
-    }, [nodes, setSelectedNode]);
-
-    // ESC key to close stats modal
-    useEffect(() => {
-      const handleKeyDown = (e: KeyboardEvent) => {
-        if (e.key === 'Escape' && showStatsModal) {
-          setShowStatsModal(false);
-        }
-      };
-      
-      window.addEventListener('keydown', handleKeyDown);
-      return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [showStatsModal]);
+  const handleStatsNodeClick = useCallback((nodeId: string) => {
+    const node = nodes.find(n => n.id === nodeId);
+    if (!node) return;
+    setSelectedNode(nodeId);
+  }, [nodes, setSelectedNode]);
 
 
 
 
   const handleSearch = useCallback((query: string) => {
     clearGraph();
-    linkCacheRef.current.clear();  // Clear cache on new search
+    linkCache.clear();
     setError(null);
-    loadArticle(query, 0);
+    loadArticle(query, 0, setError);
   }, [clearGraph, loadArticle]);
 
 
 
+
+  // ESC key to close stats modal
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && showStatsModal) {
+        setShowStatsModal(false);
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showStatsModal]);
 
   return (
     <div className="flex flex-col h-screen w-screen bg-abyss font-sans text-gray-100 overflow-hidden">
@@ -594,8 +170,8 @@ function AppContent() {
 
             <StatsButton onOpenStats={() => setShowStatsModal(true)} nodeCount={nodes.length} />
             
-            
             <SearchBar onSearch={handleSearch} isLoading={isLoading} />
+            
             <div className="flex flex-row">
               <SaveGraphButton disabled={nodes.length === 0} />
               <LoadGraphButton onLoad={handleGraphLoad} />
@@ -647,6 +223,7 @@ function AppContent() {
           onClose={() => setModalArticle(null)} 
         />
       )}
+
       {/* Stats Modal */}
       {showStatsModal && (
         <GraphStatsModal
