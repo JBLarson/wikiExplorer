@@ -52,7 +52,7 @@ export async function fetchArticleLinks(
   title: string,
   existingNodeLabels: string[],
   existingNodeIds: string[],
-  k: number = 3
+  k: number = 28
 ): Promise<{ links: WikiLink[]; crossEdges: GraphEdge[] }> {
   
   // Normalize to underscored format for backend
