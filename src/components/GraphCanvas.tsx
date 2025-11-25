@@ -34,7 +34,9 @@ export function GraphCanvas({ onNodeClick, onNodeRightClick }: GraphCanvasProps)
       })),
       links: edges.map(e => ({ 
         source: e.source, 
-        target: e.target 
+        target: e.target,
+        distance: e.distance,
+        score: e.score
       }))
     };
   }, [nodes, edges, rootNode]);
@@ -85,14 +87,48 @@ export function GraphCanvas({ onNodeClick, onNodeRightClick }: GraphCanvasProps)
     };
   }, []);
 
-  // Configure force simulation
+
+
+  // configure force simulation
   useEffect(() => {
     if (fgRef.current) {
       fgRef.current.d3Force('charge')?.strength(-400);
-      fgRef.current.d3Force('link')?.distance(150);
+      
+      // Set the distance function ONCE - it will read link.distance property
+      const linkForce = fgRef.current.d3Force('link');
+      if (linkForce) {
+        linkForce
+          .distance((link: any) => {
+            const dist = link.distance || 150;
+            console.log('🔗 Edge:', link.source?.id || link.source, '->', link.target?.id || link.target, '| distance:', dist);
+            return dist;
+          })
+          .strength(1.5);
+      }
+      
       fgRef.current.d3Force('center')?.strength(0.2);
     }
-  }, []);
+  }, []); // Keep empty - only run once
+
+  // Reheat when edges change - with a more aggressive trigger
+  useEffect(() => {
+    if (fgRef.current && edges.length > 0) {
+      // Force the link force to reinitialize with current edges
+      const linkForce = fgRef.current.d3Force('link');
+      if (linkForce) {
+        // Re-apply the distance function to ensure it picks up new edges
+        linkForce.distance((link: any) => link.distance || 150);
+      }
+      
+      // Reheat the simulation more aggressively for initial load
+      fgRef.current.d3ReheatSimulation();
+      
+      console.log('Reheated simulation with', edges.length, 'edges');
+    }
+  }, [edges.length]); // Trigger on count change
+
+
+
 
   const handleNodeClick = useCallback((node: any, event: MouseEvent) => {
     const distance = 220;
