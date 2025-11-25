@@ -128,7 +128,8 @@ export function useArticleLoader() {
                   source: sourceId,
                   target: targetId,
                   score: edge.score,
-                  distance: calculateEdgeDistance(edge.score)
+                  distance: calculateEdgeDistance(edge.score),
+                  strength: calculateEdgeDistance(edge.score)
                 });
               }
             }

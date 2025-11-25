@@ -139,7 +139,9 @@ export function GraphCanvas({ onNodeClick, onNodeRightClick, isSidebarOpen }: Gr
       
       const linkForce = fgRef.current.d3Force('link');
       if (linkForce) {
-        linkForce.distance((link: any) => link.distance || 150).strength(1.5);
+        linkForce
+          .distance((link: any) => link.distance || 150)
+          .strength((link: any) => link.strength || 1.0);  // MODIFIED
       }
       
       fgRef.current.d3Force('center')?.strength(0.2);
@@ -150,7 +152,9 @@ export function GraphCanvas({ onNodeClick, onNodeRightClick, isSidebarOpen }: Gr
     if (fgRef.current && edges.length > 0) {
       const linkForce = fgRef.current.d3Force('link');
       if (linkForce) {
-        linkForce.distance((link: any) => link.distance || 150);
+        linkForce
+          .distance((link: any) => link.distance || 150)
+          .strength((link: any) => link.strength || 1.0);  // MODIFIED
       }
       
       fgRef.current.d3ReheatSimulation();

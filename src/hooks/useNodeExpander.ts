@@ -119,7 +119,9 @@ export function useNodeExpander() {
                 source: nodeId,
                 target: linkNodeId,
                 score: link.score,
-                distance: calculateEdgeDistance(link.score)
+                distance: calculateEdgeDistance(link.score),
+                strength: calculateEdgeDistance(link.score)
+
               });
             }
           }
