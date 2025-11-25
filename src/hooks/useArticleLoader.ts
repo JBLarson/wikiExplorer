@@ -50,7 +50,7 @@ export function useArticleLoader() {
         article.title,
         existingNodeLabels,
         existingNodeIds,
-        28
+        42
       );
 
       console.log('📊 Root node links for:', article.title);
