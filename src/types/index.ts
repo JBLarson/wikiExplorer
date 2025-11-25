@@ -24,6 +24,7 @@ export interface GraphEdge {
   source: string;
   target: string;
   score?: number;
+  distance?: number;
 }
 
 export interface GraphState {

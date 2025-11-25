@@ -23,7 +23,24 @@ const queryClient = new QueryClient({
   },
 });
 
-
+// Helper: Calculate physics distance based on semantic similarity score
+// High similarity (1.0) -> Short distance (tight cluster)
+// Low similarity (0.0) -> Long distance (spread out)
+function calculateEdgeDistance(score: number | undefined): number {
+  if (typeof score !== 'number') return 150; // Default if no score
+  
+  // Normalize score if it comes in as 0-100 instead of 0-1
+  // (Though typical vector search returns 0-1)
+  const normalizedScore = score > 1 ? score / 100 : score;
+  
+  // Clamp between 0 and 1 just in case
+  const clampedScore = Math.max(0, Math.min(1, normalizedScore));
+  
+  // Invert: High score = low distance
+  // Base distance: 40 (very close)
+  // Max distance added: 260 (total 300)
+  return 40 + (1 - clampedScore) * 260;
+}
 
 // Cache structure to store unused links for each node
 interface NodeLinkCache {
@@ -255,6 +272,8 @@ function AppContent() {
                 source: nodeId,
                 target: linkNodeId,
                 score: link.score,
+                // Pre-calculate physics distance
+                distance: calculateEdgeDistance(link.score)
               });
             }
           }
@@ -276,7 +295,9 @@ function AppContent() {
                   id: edgeId,
                   source: sourceId,
                   target: targetId,
-                  score: edge.score
+                  score: edge.score,
+                  // Pre-calculate physics distance
+                  distance: calculateEdgeDistance(edge.score)
                 });
               }
             }
@@ -406,6 +427,8 @@ function AppContent() {
                 source: nodeId,
                 target: linkNodeId,
                 score: link.score,
+                // Pre-calculate physics distance
+                distance: calculateEdgeDistance(link.score)
               });
             }
           }
@@ -428,7 +451,9 @@ function AppContent() {
                   id: edgeId,
                   source: sourceId,
                   target: targetId,
-                  score: edge.score
+                  score: edge.score,
+                  // Pre-calculate physics distance
+                  distance: calculateEdgeDistance(edge.score)
                 });
               }
             }

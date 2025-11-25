@@ -39,6 +39,13 @@ export function GraphCanvas({ onNodeClick, onNodeRightClick }: GraphCanvasProps)
     };
   }, [nodes, edges, rootNode]);
 
+  useEffect(() => {
+  if (fgRef.current) {
+    fgRef.current.d3Force('link')
+      ?.distance((link: any) => link.distance || 150); // Use pre-calculated
+  }
+  }, []);
+
   // Re-heat simulation when nodes are added
   useEffect(() => {
     if (fgRef.current && nodes.length > 0) {
