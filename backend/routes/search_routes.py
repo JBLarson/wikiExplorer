@@ -13,7 +13,10 @@ from core.cross_edges import calculate_cross_edges
 from models import db, PublicSearch
 from sqlalchemy.exc import IntegrityError
 
+
 search_bp = Blueprint('search', __name__)
+
+
 
 @search_bp.route('/related/<path:query>', methods=['GET'])
 def get_related(query):
@@ -162,19 +165,42 @@ def get_related(query):
         except Exception as e:
             print(f"Error calculating cross edges: {e}")
     
-    # Save search to public database
-    try:
-        existing = PublicSearch.query.filter_by(query=query).first()
-        if existing:
-            existing.search_count += 1
-            existing.last_searched_at = datetime.utcnow()
-        else:
-            new_search = PublicSearch(query=query, search_count=1)
-            db.session.add(new_search)
-        db.session.commit()
-    except Exception as e:
-        db.session.rollback()
-        print(f"Failed to save search (non-critical): {e}")
+        try:
+            ip_address = request.headers.get('X-Forwarded-For', request.remote_addr)
+            if ip_address and ',' in ip_address:
+                ip_address = ip_address.split(',')[0].strip()
+            
+            user_agent = request.headers.get('User-Agent', 'Unknown')
+            
+            existing = PublicSearch.query.filter_by(search_query=query).first()
+            if existing:
+                existing.search_count += 1
+                existing.last_searched_at = datetime.utcnow()
+                existing.last_ip = ip_address
+                
+                # Track unique IPs and user agents
+                if existing.ip_addresses is None:
+                    existing.ip_addresses = []
+                if existing.user_agents is None:
+                    existing.user_agents = []
+                    
+                if ip_address not in existing.ip_addresses:
+                    existing.ip_addresses = existing.ip_addresses + [ip_address]
+                if user_agent not in existing.user_agents:
+                    existing.user_agents = existing.user_agents + [user_agent]
+            else:
+                new_search = PublicSearch(
+                    search_query=query,
+                    search_count=1,
+                    last_ip=ip_address,
+                    ip_addresses=[ip_address],
+                    user_agents=[user_agent]
+                )
+                db.session.add(new_search)
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            print(f"Failed to save search (non-critical): {e}")
     
     final_results = []
     for r in top_results:

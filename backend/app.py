@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from flask import Flask
 from flask_cors import CORS
+from flask_migrate import Migrate
 from dotenv import load_dotenv
 import platform
 import os
@@ -30,7 +31,7 @@ app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
 
 # Initialize database
 db.init_app(app)
-
+migrate = Migrate(app, db)
 
 
 with app.app_context():

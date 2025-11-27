@@ -4,6 +4,8 @@ node_modules
 
 venv
 
+migrations
+
 metadata.db
 *.db-shm
 *.db-wal
@@ -31,3 +33,4 @@ dist
 we_server.txt
 
 deploy.sh
+
