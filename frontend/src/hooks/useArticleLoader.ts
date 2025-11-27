@@ -19,7 +19,8 @@ export function useArticleLoader() {
   const loadArticle = useCallback(async (
     title: string,
     depth: number = 0,
-    onError: (error: string) => void
+    onError: (error: string) => void,
+    isPrivate: boolean = false
   ) => {
     setLoading(true);
     
@@ -50,10 +51,11 @@ export function useArticleLoader() {
         article.title,
         existingNodeLabels,
         existingNodeIds,
-        49
+        49,
+        isPrivate
       );
 
-      console.log('📊 Root node links for:', article.title);
+      console.log('🔍 Root node links for:', article.title);
       links.slice(0, 7).forEach(link => {
         console.log(`  - ${link.title}: score=${link.score}, distance=${calculateEdgeDistance(link.score)}`);
       });

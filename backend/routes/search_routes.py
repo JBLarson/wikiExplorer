@@ -18,6 +18,7 @@ search_bp = Blueprint('search', __name__)
 
 
 
+
 @search_bp.route('/related/<path:query>', methods=['GET'])
 def get_related(query):
     search_engine = current_app.search_engine
@@ -26,6 +27,7 @@ def get_related(query):
     ranking_mode = request.args.get('ranking', 'default')
     debug_mode = request.args.get('debug', 'false').lower() == 'true'
     context_str = request.args.get('context', '')
+    is_private = request.args.get('private', 'false').lower() == 'true'
     
     try:
         k_results = int(request.args.get('k', search_engine.config.RESULTS_TO_RETURN))
@@ -165,6 +167,8 @@ def get_related(query):
         except Exception as e:
             print(f"Error calculating cross edges: {e}")
     
+    # Save search to public database only if NOT private
+    if not is_private:
         try:
             ip_address = request.headers.get('X-Forwarded-For', request.remote_addr)
             if ip_address and ',' in ip_address:
@@ -178,7 +182,6 @@ def get_related(query):
                 existing.last_searched_at = datetime.utcnow()
                 existing.last_ip = ip_address
                 
-                # Track unique IPs and user agents
                 if existing.ip_addresses is None:
                     existing.ip_addresses = []
                 if existing.user_agents is None:
@@ -211,6 +214,10 @@ def get_related(query):
         "results": final_results,
         "cross_edges": cross_edges
     })
+
+
+
+
 
 @search_bp.route('/article/<path:title>', methods=['GET'])
 def get_article_details(title):

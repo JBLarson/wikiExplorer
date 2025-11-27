@@ -1,15 +1,16 @@
 // @refresh reset
 import { useState, useRef, useEffect } from 'react';
-import { MagnifyingGlassIcon, XMarkIcon } from '@heroicons/react/24/outline';
+import { MagnifyingGlassIcon, XMarkIcon, LockClosedIcon } from '@heroicons/react/24/outline';
 
 interface SearchBarProps {
-  onSearch: (query: string) => void;
+  onSearch: (query: string, isPrivate: boolean) => void;
   placeholder?: string;
   isLoading?: boolean;
 }
 
 export function SearchBar({ onSearch, placeholder = 'Explore Wikipedia', isLoading = false }: SearchBarProps) {
   const [query, setQuery] = useState('');
+  const [isPrivate, setIsPrivate] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   
@@ -28,7 +29,7 @@ export function SearchBar({ onSearch, placeholder = 'Explore Wikipedia', isLoadi
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (query.trim() && !isLoading) {
-      onSearch(query.trim());
+      onSearch(query.trim(), isPrivate);
       inputRef.current?.blur();
     }
   };
@@ -92,6 +93,38 @@ export function SearchBar({ onSearch, placeholder = 'Explore Wikipedia', isLoadi
             /
           </div>
         </div>
+      </div>
+
+      {/* Private Search Checkbox */}
+      <div className="flex items-center gap-2 mt-3 px-1">
+        <label className="flex items-center gap-2 cursor-pointer group/checkbox">
+          <div className="relative">
+            <input
+              type="checkbox"
+              checked={isPrivate}
+              onChange={(e) => setIsPrivate(e.target.checked)}
+              className="peer sr-only"
+            />
+            <div className="w-5 h-5 border-2 border-abyss-border peer-checked:border-brand-primary peer-checked:bg-brand-primary rounded transition-all duration-200 flex items-center justify-center">
+              {isPrivate && (
+                <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                </svg>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <LockClosedIcon className={`w-4 h-4 transition-colors ${isPrivate ? 'text-brand-glow' : 'text-gray-500'}`} />
+            <span className={`text-sm font-medium transition-colors ${isPrivate ? 'text-brand-glow' : 'text-gray-400'}`}>
+              Private search
+            </span>
+          </div>
+        </label>
+        {isPrivate && (
+          <span className="text-xs text-gray-600 ml-2">
+            (not saved to database)
+          </span>
+        )}
       </div>
     </form>
   );

@@ -82,12 +82,12 @@ function AppContent() {
     setSelectedNode(nodeId);
   }, [nodes, setSelectedNode]);
 
-  const handleSearch = useCallback((query: string) => {
+  const handleSearch = useCallback((query: string, isPrivate: boolean = false) => {
     clearGraph();
     linkCache.clear();
     setError(null);
     setShowWikiModal(false);
-    loadArticle(query, 0, setError);
+    loadArticle(query, 0, setError, isPrivate);
   }, [clearGraph, loadArticle]);
 
   useEffect(() => {

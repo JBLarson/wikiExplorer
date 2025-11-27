@@ -52,7 +52,9 @@ export async function fetchArticleLinks(
   title: string,
   existingNodeLabels: string[],
   existingNodeIds: string[],
-  k: number = 49
+  k: number = 49,
+  isPrivate: boolean = false
+
 ): Promise<{ links: WikiLink[]; crossEdges: GraphEdge[] }> {
   
   // Normalize to underscored format for backend
@@ -65,7 +67,7 @@ export async function fetchArticleLinks(
   
   try {
     const response = await fetch(
-      `${BACKEND_API_BASE}/related/${query}?k=${k}&context=${contextParam}`
+      `${BACKEND_API_BASE}/related/${query}?k=${k}&context=${contextParam}&private=${isPrivate}`
     );
 
     if (!response.ok) {
