@@ -195,25 +195,22 @@ export function GraphStatsModal({ nodes, edges, onClose, onNodeClick }: GraphSta
   );
 }
 
-// Helper functions for styling
+
+
+
+
 function getDepthColor(depth: number): string {
-  const colors = [
-    'bg-purple-500 shadow-[0_0_8px_rgba(168,85,247,0.6)]', // Depth 0
-    'bg-purple-400 shadow-[0_0_6px_rgba(192,132,252,0.5)]', // Depth 1
-    'bg-indigo-400 shadow-[0_0_6px_rgba(129,140,248,0.5)]', // Depth 2
-    'bg-blue-400 shadow-[0_0_6px_rgba(96,165,250,0.5)]',    // Depth 3
-    'bg-cyan-400 shadow-[0_0_6px_rgba(34,211,238,0.5)]',    // Depth 4+
-  ];
-  return colors[Math.min(depth, colors.length - 1)];
+  const hue = 280 - (Math.min(depth, 6) * 27);
+  const saturation = 70 + (depth * 4);
+  const lightness = 65 - (depth * 6);
+  
+  return `shadow-[0_0_8px_hsl(${hue},${saturation}%,${lightness}%,0.6)]`;
 }
 
 function getDepthBadgeColor(depth: number): string {
-  const colors = [
-    'bg-purple-500/20 text-purple-300 border border-purple-500/30',
-    'bg-purple-400/20 text-purple-200 border border-purple-400/30',
-    'bg-indigo-400/20 text-indigo-200 border border-indigo-400/30',
-    'bg-blue-400/20 text-blue-200 border border-blue-400/30',
-    'bg-cyan-400/20 text-cyan-200 border border-cyan-400/30',
-  ];
-  return colors[Math.min(depth, colors.length - 1)];
+  const hue = 280 - (Math.min(depth, 6) * 27);
+  const saturation = 70 + (depth * 4);
+  const lightness = 65 - (depth * 6);
+  
+  return `bg-[hsl(${hue},${saturation}%,${lightness}%,0.2)] text-[hsl(${hue},${saturation}%,${lightness + 15}%)] border border-[hsl(${hue},${saturation}%,${lightness}%,0.3)]`;
 }

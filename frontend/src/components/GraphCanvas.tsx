@@ -179,6 +179,8 @@ export function GraphCanvas({ onNodeClick, onNodeRightClick, isSidebarOpen }: Gr
             val: node.val,
             isSelected: node.id === selectedNode,
             isRoot: node.id === rootNode,
+            expansionCount: node?.expansionCount ?? 0,
+
           });
         }}
         linkThreeObject={() => {

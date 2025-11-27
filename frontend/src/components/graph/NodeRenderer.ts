@@ -1,10 +1,7 @@
 // frontend/src/components/graph/NodeRenderer.ts
+// @refresh reset
 import * as THREE from 'three';
 import { nodeGlowVertexShader, nodeGlowFragmentShader } from './Shaders';
-
-const DEPTH_COLORS = [
-  0xA855F7, 0x6366F1, 0x3B82F6, 0x10B981,
-];
 
 interface NodeRenderData {
   id: string;
@@ -13,35 +10,97 @@ interface NodeRenderData {
   val: number;
   isSelected: boolean;
   isRoot: boolean;
+  expansionCount?: number;
+  connectionCount?: number;
 }
 
-// ✅ PERFORMANCE: Cache textures to avoid recreating canvases
+// Cache textures to avoid recreating canvases
 const textureCache = new Map<string, THREE.Texture>();
 
+/**
+ * Advanced color system based on multiple factors:
+ * - Depth (primary gradient)
+ * - Importance (saturation/brightness boost)
+ * - Expansion state (hue shift)
+ */
+function getNodeColor(node: NodeRenderData): THREE.Color {
+  const depth = Math.min(node.group, 6);
+  
+  // Root node gets special treatment
+  if (node.isRoot) {
+    return new THREE.Color(0xF59E0B); // Amber - clear entry point
+  }
+  
+  // Selected state
+  if (node.isSelected) {
+    return new THREE.Color(0xFFFFFF);
+  }
+  
+  // Determine if node is "important" (high connectivity or expanded multiple times)
+  const expansionCount = node.expansionCount || 0;
+  const isImportant = expansionCount >= 2;
+  
+  // Base color progression using HSL for smooth gradients
+  // Hue: 280° (purple) → 240° (blue) → 200° (cyan) → 160° (teal) → 120° (green)
+  const baseHue = 280 - (depth * 27); // Smooth 27° shift per depth level
+  
+  // Saturation: Deeper nodes are more saturated (more vibrant)
+  const baseSaturation = 0.7 + (depth * 0.04);
+  
+  // Lightness: Gradually dimmer as we go deeper, but not too dark
+  const baseLightness = 0.65 - (depth * 0.06);
+  
+  // Boost important nodes
+  const saturation = isImportant ? Math.min(baseSaturation + 0.15, 1.0) : baseSaturation;
+  const lightness = isImportant ? Math.min(baseLightness + 0.1, 0.8) : baseLightness;
+  
+  const color = new THREE.Color();
+  color.setHSL(baseHue / 360, saturation, lightness);
+  
+  return color;
+}
+
+/**
+ * Get glow intensity based on node state
+ */
+function getGlowIntensity(node: NodeRenderData): number {
+  if (node.isSelected) return 0.8;
+  if (node.isRoot) return 0.6;
+  
+  const expansionCount = node.expansionCount || 0;
+  if (expansionCount >= 2) return 0.4;
+  if (expansionCount === 1) return 0.3;
+  
+  return 0.2;
+}
+
 export function createNodeObject(node: NodeRenderData): THREE.Group {
-  const depthIndex = Math.min(node.group, DEPTH_COLORS.length - 1);
-  const baseColor = new THREE.Color(DEPTH_COLORS[depthIndex]);
+  const baseColor = getNodeColor(node);
   const nodeSize = node.val * 0.45;
   const group = new THREE.Group();
 
-  // Wireframe sphere
+  // Wireframe sphere with dynamic opacity
   const wireframeGeometry = new THREE.SphereGeometry(nodeSize, 7, 7);
+  const wireframeOpacity = node.isSelected ? 1.0 : 
+                           node.isRoot ? 0.9 :
+                           (node.expansionCount || 0) >= 1 ? 0.8 : 0.7;
+  
   const wireframeMaterial = new THREE.MeshBasicMaterial({
-    color: node.isSelected ? 0xffffff : baseColor,
+    color: baseColor,
     wireframe: true,
     transparent: true,
-    opacity: node.isSelected ? 0.9 : 0.7,
+    opacity: wireframeOpacity,
   });
   
   const wireframeMesh = new THREE.Mesh(wireframeGeometry, wireframeMaterial);
   group.add(wireframeMesh);
 
-  // Glow sphere
+  // Glow sphere with variable intensity
   const glowGeometry = new THREE.SphereGeometry(nodeSize * 1.15, 16, 16);
   const glowMaterial = new THREE.ShaderMaterial({
     uniforms: {
       color: { value: baseColor },
-      intensity: { value: node.isSelected ? 0.5 : 0.25 },
+      intensity: { value: getGlowIntensity(node) },
     },
     vertexShader: nodeGlowVertexShader,
     fragmentShader: nodeGlowFragmentShader,
@@ -54,13 +113,24 @@ export function createNodeObject(node: NodeRenderData): THREE.Group {
   const glowMesh = new THREE.Mesh(glowGeometry, glowMaterial);
   group.add(glowMesh);
 
-  // Text sprite (CACHED)
-  const cacheKey = `${node.label}-${nodeSize}-${node.isSelected}`;
+  // Text sprite (cached)
+  const cacheKey = `${node.label}-${nodeSize}-${node.isSelected}-${node.isRoot}`;
   let texture = textureCache.get(cacheKey);
   
   if (!texture) {
-    texture = createTextTexture(node.label, baseColor, nodeSize, node.isSelected);
+    texture = createTextTexture(node.label, baseColor, nodeSize, node.isSelected || node.isRoot);
     textureCache.set(cacheKey, texture);
+    
+    // Clear old textures if cache gets too large
+    if (textureCache.size > 200) {
+      // ✅ FIX: Handle undefined properly
+      const firstKey = Array.from(textureCache.keys())[0];
+      if (firstKey) {
+        const oldTexture = textureCache.get(firstKey);
+        if (oldTexture) oldTexture.dispose();
+        textureCache.delete(firstKey);
+      }
+    }
   }
 
   const spriteMaterial = new THREE.SpriteMaterial({
@@ -83,7 +153,7 @@ function createTextTexture(
   label: string,
   color: THREE.Color,
   nodeSize: number,
-  isSelected: boolean
+  isHighlighted: boolean
 ): THREE.Texture {
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d')!;
@@ -137,11 +207,11 @@ function createTextTexture(
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.font = `bold ${fontSize}px Inter`;
-  ctx.fillStyle = isSelected ? '#FFFFFF' : '#F3F4F6';
+  ctx.fillStyle = isHighlighted ? '#FFFFFF' : '#F3F4F6';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.shadowColor = color.getStyle();
-  ctx.shadowBlur = 15;
+  ctx.shadowBlur = isHighlighted ? 20 : 15;
 
   const startY = (canvas.height - totalHeight) / 2 + lineHeight / 2;
   lines.forEach((line, index) => {
@@ -155,4 +225,23 @@ function createTextTexture(
   return texture;
 }
 
-export { DEPTH_COLORS };
+// Export color mapping for legend/stats (optional future use)
+export function getDepthColor(depth: number): string {
+  const hue = 280 - (Math.min(depth, 6) * 27);
+  const saturation = 70 + (depth * 4);
+  const lightness = 65 - (depth * 6);
+  return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+}
+
+export function getDepthDescription(depth: number): string {
+  const descriptions = [
+    'Root Topic',
+    'Direct Connections',
+    'Secondary Relations',
+    'Tertiary Context',
+    'Extended Network',
+    'Peripheral Topics',
+    'Deep Exploration',
+  ];
+  return descriptions[Math.min(depth, descriptions.length - 1)];
+}
