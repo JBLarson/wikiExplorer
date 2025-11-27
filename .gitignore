@@ -1,3 +1,5 @@
+data
+
 node_modules
 
 venv
@@ -9,8 +11,7 @@ metadata.db
 index.faiss
 
 .DS_Store
-
-data
+__pycache__
 
 graphicDesign.drawio
 
