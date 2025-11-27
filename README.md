@@ -2,6 +2,10 @@
 
 Interactive 3D knowledge graph for exploring Wikipedia through semantic search.
 
+<p align="center">
+  <img src="frontend/src/assets/wikiExplorer-logo-300.png" alt="wikiExplorer Logo" width="300">
+</p>
+
 ## Stack
 
 **Backend:** Python Flask, FAISS vector search, Sentence Transformers (MiniLM-L6-v2), SQLite metadata, PostgreSQL analytics
