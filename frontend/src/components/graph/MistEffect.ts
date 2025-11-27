@@ -8,8 +8,11 @@ interface MistConfig {
   baseSize: number;
 }
 
+const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+
+
 const DEFAULT_CONFIG: MistConfig = {
-  particleCount: 300,
+  particleCount: isMobile ? 150 : 300,
   spreadRadius: 3,
   baseSize: 2,
 };

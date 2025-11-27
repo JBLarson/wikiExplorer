@@ -1,79 +1,106 @@
+// frontend/src/components/graph/SceneSetup.ts
 // @refresh reset
 import * as THREE from 'three';
-import { starVertexShader, starFragmentShader } from './Shaders';
 
-export function createAtmosphericParticles(): {
-  stars: THREE.Points;
+/**
+ * Creates a simple, performant animated background using a shader-based gradient sphere.
+ * This replaces the broken particle star system with something that actually works.
+ */
+export function createAtmosphericBackground(): {
+  background: THREE.Mesh;
   material: THREE.ShaderMaterial;
 } {
-  const starCount = 1200;
-  const starGeometry = new THREE.BufferGeometry();
-  const starPositions = new Float32Array(starCount * 3);
-  const starColors = new Float32Array(starCount * 3);
-  const starSizes = new Float32Array(starCount);
-
-  for (let i = 0; i < starCount; i++) {
-    const radius = 800 + Math.random() * 400;
-    const theta = Math.random() * Math.PI * 2;
-    const phi = Math.acos(2 * Math.random() - 1);
-    
-    starPositions[i * 3] = radius * Math.sin(phi) * Math.cos(theta);
-    starPositions[i * 3 + 1] = radius * Math.sin(phi) * Math.sin(theta);
-    starPositions[i * 3 + 2] = radius * Math.cos(phi);
-
-    const colorChoice = Math.random();
-    const color = new THREE.Color();
-    if (colorChoice < 0.4) {
-      color.setHex(0x6366f1);
-    } else if (colorChoice < 0.7) {
-      color.setHex(0xa855f7);
-    } else {
-      color.setHex(0x818cf8);
-    }
-    
-    starColors[i * 3] = color.r;
-    starColors[i * 3 + 1] = color.g;
-    starColors[i * 3 + 2] = color.b;
-    
-    starSizes[i] = Math.random() * 1.5 + 0.3;
-  }
-
-  starGeometry.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
-  starGeometry.setAttribute('color', new THREE.BufferAttribute(starColors, 3));
-  starGeometry.setAttribute('size', new THREE.BufferAttribute(starSizes, 1));
-
-  const starMaterial = new THREE.ShaderMaterial({
+  // Create a large sphere that encompasses the entire scene
+  const geometry = new THREE.SphereGeometry(2000, 32, 32);
+  
+  const material = new THREE.ShaderMaterial({
     uniforms: {
       time: { value: 0 },
+      color1: { value: new THREE.Color(0x02020B) }, // Deep abyss
+      color2: { value: new THREE.Color(0x1a0b2e) }, // Deep purple
+      color3: { value: new THREE.Color(0x0f1729) }, // Navy blue
     },
-    vertexShader: starVertexShader,
-    fragmentShader: starFragmentShader,
-    transparent: true,
+    vertexShader: `
+      varying vec3 vWorldPosition;
+      varying vec3 vNormal;
+      
+      void main() {
+        vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+        vWorldPosition = worldPosition.xyz;
+        vNormal = normalize(normalMatrix * normal);
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform float time;
+      uniform vec3 color1;
+      uniform vec3 color2;
+      uniform vec3 color3;
+      
+      varying vec3 vWorldPosition;
+      varying vec3 vNormal;
+      
+      // Simple noise function
+      float noise(vec3 p) {
+        return fract(sin(dot(p, vec3(12.9898, 78.233, 45.164))) * 43758.5453);
+      }
+      
+      void main() {
+        // Normalize position for consistent gradient
+        vec3 normPos = normalize(vWorldPosition);
+        
+        // Create slowly shifting gradient based on position
+        float gradient = normPos.y * 0.5 + 0.5;
+        
+        // Add very subtle animation
+        float wave = sin(time * 0.1 + normPos.x * 2.0 + normPos.z * 1.5) * 0.15 + 0.5;
+        
+        // Mix colors based on gradient and wave
+        vec3 color = mix(color1, color2, gradient);
+        color = mix(color, color3, wave * 0.3);
+        
+        // Add very subtle noise for depth
+        float noiseVal = noise(normPos * 10.0 + time * 0.05) * 0.03;
+        color += noiseVal;
+        
+        gl_FragColor = vec4(color, 1.0);
+      }
+    `,
+    side: THREE.BackSide, // Render inside of sphere
     depthWrite: false,
-    blending: THREE.AdditiveBlending,
   });
-
-  const stars = new THREE.Points(starGeometry, starMaterial);
   
-  return { stars, material: starMaterial };
+  const background = new THREE.Mesh(geometry, material);
+  
+  return { background, material };
 }
 
+/**
+ * Adds subtle accent lights that enhance the atmosphere without performance cost
+ */
 export function setupLighting(scene: THREE.Scene): void {
-  const keyLight = new THREE.DirectionalLight(0x8b5cf6, 0.8);
+  // Key light - purple accent
+  const keyLight = new THREE.DirectionalLight(0x8b5cf6, 0.6);
   keyLight.position.set(100, 200, 100);
   scene.add(keyLight);
-
-  const fillLight = new THREE.DirectionalLight(0x3b82f6, 0.4);
+  
+  // Fill light - blue accent
+  const fillLight = new THREE.DirectionalLight(0x3b82f6, 0.3);
   fillLight.position.set(-100, -50, -100);
   scene.add(fillLight);
-
-  const backLight = new THREE.DirectionalLight(0x6366f1, 0.6);
+  
+  // Back light - indigo accent
+  const backLight = new THREE.DirectionalLight(0x6366f1, 0.4);
   backLight.position.set(0, 50, -200);
   scene.add(backLight);
-
-  scene.add(new THREE.AmbientLight(0x1e1b4b, 0.3));
+  
+  // Ambient light - very dim to preserve dark theme
+  scene.add(new THREE.AmbientLight(0x1e1b4b, 0.2));
 }
 
+/**
+ * Exponential fog for depth perception
+ */
 export function setupFog(scene: THREE.Scene): void {
-  scene.fog = new THREE.FogExp2(0x02020B, 0.00045);
+  scene.fog = new THREE.FogExp2(0x02020B, 0.00035);
 }
