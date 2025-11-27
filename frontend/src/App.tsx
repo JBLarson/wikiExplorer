@@ -1,6 +1,7 @@
+// frontend/src/App.tsx
 import { useState, useCallback, useEffect } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { XMarkIcon } from '@heroicons/react/24/outline';
+import { XMarkIcon, Bars3Icon } from '@heroicons/react/24/outline';
 import { GraphCanvas } from './components/GraphCanvas';
 import { RefreshButton } from './components/RefreshButton';
 import { SearchBar } from './components/SearchBar';
@@ -29,12 +30,12 @@ const queryClient = new QueryClient({
 
 function AppContent() {
   const { nodes, edges, setSelectedNode, clearGraph, isLoading } = useGraphStore();
-
   const [showStatsModal, setShowStatsModal] = useState(false);
   const [showWikiModal, setShowWikiModal] = useState(false);
   const [wikiModalData, setWikiModalData] = useState({ url: '', title: '' });
   const [backendOnline, setBackendOnline] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const { loadArticle } = useArticleLoader();
   const { expandNode } = useNodeExpander();
@@ -53,14 +54,13 @@ function AppContent() {
     linkCache.clear();
     setError(null);
     setShowWikiModal(false);
+    setMobileMenuOpen(false);
   }, []);
 
   const handleNodeClick = useCallback((nodeId: string) => {
     const node = nodes.find(n => n.id === nodeId);
     if (!node) return;
-
     setSelectedNode(nodeId);
-
     if (node.expansionCount === 0) {
       loadArticle(node.label, node.depth, setError);
     } else {
@@ -71,7 +71,6 @@ function AppContent() {
   const handleNodeRightClick = useCallback((nodeId: string) => {
     const node = nodes.find(n => n.id === nodeId);
     if (!node) return;
-
     setWikiModalData({ url: node.data.url, title: node.label });
     setShowWikiModal(true);
   }, [nodes]);
@@ -87,6 +86,7 @@ function AppContent() {
     linkCache.clear();
     setError(null);
     setShowWikiModal(false);
+    setMobileMenuOpen(false);
     loadArticle(query, 0, setError, isPrivate);
   }, [clearGraph, loadArticle]);
 
@@ -97,18 +97,21 @@ function AppContent() {
           setShowStatsModal(false);
         } else if (showWikiModal) {
           setShowWikiModal(false);
+        } else if (mobileMenuOpen) {
+          setMobileMenuOpen(false);
         }
       }
     };
     
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [showStatsModal, showWikiModal]);
+  }, [showStatsModal, showWikiModal, mobileMenuOpen]);
 
   return (
     <div className="flex flex-col h-screen w-screen bg-abyss font-sans text-gray-100 overflow-hidden">
       
-      <div className="absolute top-0 left-0 w-full z-50 pointer-events-none">
+      {/* Desktop Header */}
+      <div className="hidden md:block absolute top-0 left-0 w-full z-50 pointer-events-none">
         <div className="flex items-center justify-between p-6 bg-gradient-to-b from-abyss via-abyss/80 to-transparent">
           
           <div className="flex items-center gap-4 pointer-events-auto">
@@ -132,7 +135,6 @@ function AppContent() {
               onRefreshApp={handleHardRefresh}
               onRefreshEdges={handleRefreshEdges}
             />
-
             <StatsButton onOpenStats={() => setShowStatsModal(true)} nodeCount={nodes.length} />
             
             <SearchBar onSearch={handleSearch} isLoading={isLoading} />
@@ -147,9 +149,66 @@ function AppContent() {
         </div>
       </div>
 
+      {/* Mobile Header */}
+      <div className="md:hidden absolute top-0 left-0 w-full z-50 pointer-events-none">
+        <div className="flex items-center justify-between p-4 bg-abyss-surface/95 backdrop-blur-xl border-b border-abyss-border pointer-events-auto">
+          
+          {/* Logo */}
+          <div className="flex items-center gap-2">
+            <img src={weLogo} alt="wikiExplorer" className="w-8 h-8 opacity-90" />
+            <div>
+              <h1 className="text-sm font-bold text-white">wikiExplorer</h1>
+              <div className="flex items-center gap-1.5">
+                <div className={`w-1 h-1 rounded-full ${backendOnline ? 'bg-green-500' : 'bg-red-500'}`} />
+                <span className="text-[8px] uppercase tracking-wider text-gray-500">
+                  {backendOnline ? 'Online' : 'Offline'}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Stats */}
+          <div className="flex items-center gap-3">
+            <Counter />
+            <button
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              className="p-2 hover:bg-abyss-hover rounded-lg transition-colors"
+            >
+              {mobileMenuOpen ? (
+                <XMarkIcon className="w-6 h-6 text-white" />
+              ) : (
+                <Bars3Icon className="w-6 h-6 text-white" />
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* Mobile Menu Dropdown */}
+        {mobileMenuOpen && (
+          <div className="pointer-events-auto bg-abyss-surface/98 backdrop-blur-xl border-b border-abyss-border shadow-2xl animate-slide-down">
+            <div className="p-4 space-y-3">
+              {/* Search */}
+              <SearchBar onSearch={handleSearch} isLoading={isLoading} />
+              
+              {/* Actions */}
+              <div className="grid grid-cols-2 gap-2">
+                <StatsButton onOpenStats={() => { setShowStatsModal(true); setMobileMenuOpen(false); }} nodeCount={nodes.length} />
+                <RefreshButton 
+                  onRefreshApp={handleHardRefresh}
+                  onRefreshEdges={handleRefreshEdges}
+                />
+                <SaveGraphButton disabled={nodes.length === 0} />
+                <LoadGraphButton onLoad={handleGraphLoad} />
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Error Toast */}
       {error && (
-        <div className="absolute top-28 left-1/2 -translate-x-1/2 z-50 animate-slide-up pointer-events-auto">
-          <div className="flex items-center gap-3 px-6 py-3 bg-red-950/90 backdrop-blur border border-red-500/30 rounded-xl shadow-2xl">
+        <div className="absolute top-28 left-1/2 -translate-x-1/2 z-50 animate-slide-up pointer-events-auto max-w-[90vw]">
+          <div className="flex items-center gap-3 px-4 py-3 bg-red-950/90 backdrop-blur border border-red-500/30 rounded-xl shadow-2xl">
             <span className="text-sm font-medium text-red-200">{error}</span>
             <button onClick={() => setError(null)} className="text-red-400 hover:text-white transition-colors">
               <XMarkIcon className="w-4 h-4" />
@@ -158,6 +217,7 @@ function AppContent() {
         </div>
       )}
 
+      {/* Graph Canvas */}
       <div className="flex-1 relative overflow-hidden">
         <GraphCanvas 
           onNodeClick={handleNodeClick}
@@ -166,18 +226,19 @@ function AppContent() {
         />
         
         {nodes.length === 0 && !isLoading && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+          <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none px-4">
             <div className="text-center space-y-4">
-              <div className="inline-flex items-center justify-center w-20 h-20 rounded-3xl bg-abyss-surface border border-abyss-highlight shadow-2xl mb-4">
-                <img src={weLogo} alt="" className="w-10 h-10 opacity-50 grayscale" />
+              <div className="inline-flex items-center justify-center w-16 h-16 md:w-20 md:h-20 rounded-3xl bg-abyss-surface border border-abyss-highlight shadow-2xl mb-4">
+                <img src={weLogo} alt="" className="w-8 h-8 md:w-10 md:h-10 opacity-50 grayscale" />
               </div>
-              <h2 className="text-2xl font-bold text-gray-700">Ready to Explore</h2>
-              <p className="text-gray-600">Enter a topic above to generate the graph</p>
+              <h2 className="text-xl md:text-2xl font-bold text-gray-700">Ready to Explore</h2>
+              <p className="text-sm md:text-base text-gray-600">Search a topic to generate the graph</p>
             </div>
           </div>
         )}
       </div>
 
+      {/* Modals */}
       {showStatsModal && (
         <GraphStatsModal
           nodes={nodes}
