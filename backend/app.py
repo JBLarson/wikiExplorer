@@ -60,10 +60,12 @@ app.register_blueprint(health_bp, url_prefix='/api')
 
 if __name__ == '__main__':
     is_dev = platform.system() == "Darwin"
-    
-    app.run(
-        host='0.0.0.0',
-        port=5001,
-        debug=is_dev,
-        threaded=True
-    )
+    if is_dev:  app.run(port=5001, debug=True, threaded=True)
+
+    else:    
+        app.run(
+            host='0.0.0.0',
+            port=5001,
+            debug=False,
+            threaded=True
+        )
