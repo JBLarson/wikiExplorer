@@ -1,3 +1,4 @@
+// frontend/src/components/SearchBar.tsx
 // @refresh reset
 import { useState, useRef, useEffect } from 'react';
 import { MagnifyingGlassIcon, XMarkIcon, LockClosedIcon } from '@heroicons/react/24/outline';
@@ -35,9 +36,9 @@ export function SearchBar({ onSearch, placeholder = 'Explore Wikipedia', isLoadi
   };
   
   return (
-    <form onSubmit={handleSubmit} className="relative w-full group z-50 max-w-4xl mx-auto">
+    <form onSubmit={handleSubmit} className="relative w-full group z-50 max-w-4xl mx-auto flex items-center gap-3">
       <div className={`
-        relative flex items-center
+        relative flex items-center flex-1
         bg-abyss-surface/90 backdrop-blur-xl
         border transition-all duration-300 ease-out rounded-2xl
         ${isFocused 
@@ -95,37 +96,26 @@ export function SearchBar({ onSearch, placeholder = 'Explore Wikipedia', isLoadi
         </div>
       </div>
 
-      {/* Private Search Checkbox */}
-      <div className="flex items-center gap-2 mt-3 px-1">
-        <label className="flex items-center gap-2 cursor-pointer group/checkbox">
-          <div className="relative">
-            <input
-              type="checkbox"
-              checked={isPrivate}
-              onChange={(e) => setIsPrivate(e.target.checked)}
-              className="peer sr-only"
-            />
-            <div className="w-5 h-5 border-2 border-abyss-border peer-checked:border-brand-primary peer-checked:bg-brand-primary rounded transition-all duration-200 flex items-center justify-center">
-              {isPrivate && (
-                <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                </svg>
-              )}
-            </div>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <LockClosedIcon className={`w-4 h-4 transition-colors ${isPrivate ? 'text-brand-glow' : 'text-gray-500'}`} />
-            <span className={`text-sm font-medium transition-colors ${isPrivate ? 'text-brand-glow' : 'text-gray-400'}`}>
-              Private search
-            </span>
-          </div>
-        </label>
-        {isPrivate && (
-          <span className="text-xs text-gray-600 ml-2">
-            (not saved to database)
-          </span>
-        )}
-      </div>
+      {/* Private Search Checkbox - Inline */}
+      <button
+        type="button"
+        onClick={() => setIsPrivate(!isPrivate)}
+        className={`
+          flex items-center justify-center gap-2 h-14 px-4
+          bg-abyss-surface/90 backdrop-blur-xl
+          border rounded-2xl transition-all duration-300
+          hover:bg-abyss-hover shadow-glass
+          ${isPrivate 
+            ? 'border-brand-primary/50 shadow-glow ring-1 ring-brand-primary/20' 
+            : 'border-abyss-border'
+          }
+        `}
+      >
+        <LockClosedIcon className={`w-5 h-5 transition-colors ${isPrivate ? 'text-brand-glow' : 'text-gray-500'}`} />
+        <span className={`hidden lg:block text-sm font-medium transition-colors ${isPrivate ? 'text-brand-glow' : 'text-gray-400'}`}>
+          Private
+        </span>
+      </button>
     </form>
   );
 }
