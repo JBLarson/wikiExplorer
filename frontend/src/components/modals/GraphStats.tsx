@@ -145,15 +145,8 @@ export function GraphStatsModal({ nodes, edges, onClose, onNodeClick }: GraphSta
                   <td className="p-4">
                     <div className="flex items-center gap-3">
                       <div className={`w-3 h-3 rounded-full flex-shrink-0 ${getDepthColor(node.depth)}`} />
-                      <div className="min-w-0">
-                        <div className="text-white font-medium group-hover:text-brand-glow transition-colors truncate">
-                          {node.label}
-                        </div>
-                        {node.data.extract && (
-                          <div className="text-xs text-gray-500 truncate mt-0.5">
-                            {node.data.extract.substring(0, 100)}...
-                          </div>
-                        )}
+                      <div className="text-white font-medium group-hover:text-brand-glow transition-colors">
+                        {node.label}
                       </div>
                     </div>
                   </td>
