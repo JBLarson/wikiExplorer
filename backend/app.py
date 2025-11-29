@@ -12,6 +12,8 @@ from core.search_engine import SearchEngine
 from routes.search_routes import search_bp
 from routes.public_search_routes import public_search_bp
 from routes.health_routes import health_bp
+from routes.comparison_routes import comparison_bp
+
 
 load_dotenv()
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -58,6 +60,7 @@ app.search_engine = search_engine
 app.register_blueprint(search_bp, url_prefix='/api')
 app.register_blueprint(public_search_bp, url_prefix='/api')
 app.register_blueprint(health_bp, url_prefix='/api')
+app.register_blueprint(comparison_bp, url_prefix='/api')
 
 if __name__ == '__main__':
     is_dev = platform.system() == "Darwin"

@@ -3,6 +3,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { XMarkIcon, Bars3Icon } from '@heroicons/react/24/outline';
 import { GraphCanvas } from './components/GraphCanvas';
+import { GraphComparison } from './components/GraphComparison';
 import { RefreshButton } from './components/RefreshButton';
 import { SearchBar } from './components/SearchBar';
 import { GraphStatsModal } from './components/modals/GraphStats';
@@ -28,8 +29,11 @@ const queryClient = new QueryClient({
   },
 });
 
+type ViewMode = 'graph' | 'comparison';
+
 function AppContent() {
   const { nodes, edges, setSelectedNode, clearGraph, isLoading } = useGraphStore();
+  const [viewMode, setViewMode] = useState<ViewMode>('graph');
   const [showStatsModal, setShowStatsModal] = useState(false);
   const [showWikiModal, setShowWikiModal] = useState(false);
   const [wikiModalData, setWikiModalData] = useState({ url: '', title: '' });
@@ -130,22 +134,50 @@ function AppContent() {
             </div>
           </div>
 
-          <div className="flex-1 max-w-4xl px-8 pointer-events-auto flex items-center gap-3">
-            <RefreshButton 
-              onRefreshApp={handleHardRefresh}
-              onRefreshEdges={handleRefreshEdges}
-            />
-            <StatsButton onOpenStats={() => setShowStatsModal(true)} nodeCount={nodes.length} />
+          {viewMode === 'graph' && (
+            <div className="flex-1 max-w-4xl px-8 pointer-events-auto flex items-center gap-3">
+              <RefreshButton 
+                onRefreshApp={handleHardRefresh}
+                onRefreshEdges={handleRefreshEdges}
+              />
+              <StatsButton onOpenStats={() => setShowStatsModal(true)} nodeCount={nodes.length} />
+              
+              <SearchBar onSearch={handleSearch} isLoading={isLoading} />
+              
+              <div className="flex flex-row gap-2">
+                <SaveGraphButton disabled={nodes.length === 0} />
+                <LoadGraphButton onLoad={handleGraphLoad} />
+              </div>
+            </div>
+          )}
+
+          <div className="pointer-events-auto flex items-center gap-4">
+            {viewMode === 'graph' && <Counter />}
             
-            <SearchBar onSearch={handleSearch} isLoading={isLoading} />
-            
-            <div className="flex flex-row">
-              <SaveGraphButton disabled={nodes.length === 0} />
-              <LoadGraphButton onLoad={handleGraphLoad} />
+            {/* View Mode Toggle */}
+            <div className="flex items-center gap-1 bg-abyss-surface/90 backdrop-blur-xl border border-abyss-border rounded-xl p-1">
+              <button
+                onClick={() => setViewMode('graph')}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+                  viewMode === 'graph'
+                    ? 'bg-brand-primary text-white'
+                    : 'text-gray-400 hover:text-white hover:bg-abyss-hover'
+                }`}
+              >
+                Graph
+              </button>
+              <button
+                onClick={() => setViewMode('comparison')}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+                  viewMode === 'comparison'
+                    ? 'bg-brand-primary text-white'
+                    : 'text-gray-400 hover:text-white hover:bg-abyss-hover'
+                }`}
+              >
+                Compare
+              </button>
             </div>
           </div>
-
-          <Counter />
         </div>
       </div>
 
@@ -167,9 +199,9 @@ function AppContent() {
             </div>
           </div>
 
-          {/* Stats */}
+          {/* Stats + Menu */}
           <div className="flex items-center gap-3">
-            <Counter />
+            {viewMode === 'graph' && <Counter />}
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
               className="p-2 hover:bg-abyss-hover rounded-lg transition-colors"
@@ -187,19 +219,53 @@ function AppContent() {
         {mobileMenuOpen && (
           <div className="pointer-events-auto bg-abyss-surface/98 backdrop-blur-xl border-b border-abyss-border shadow-2xl animate-slide-down">
             <div className="p-4 space-y-3">
-              {/* Search */}
-              <SearchBar onSearch={handleSearch} isLoading={isLoading} />
-              
-              {/* Actions */}
-              <div className="grid grid-cols-2 gap-2">
-                <StatsButton onOpenStats={() => { setShowStatsModal(true); setMobileMenuOpen(false); }} nodeCount={nodes.length} />
-                <RefreshButton 
-                  onRefreshApp={handleHardRefresh}
-                  onRefreshEdges={handleRefreshEdges}
-                />
-                <SaveGraphButton disabled={nodes.length === 0} />
-                <LoadGraphButton onLoad={handleGraphLoad} />
+              {/* View Mode Toggle */}
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    setViewMode('graph');
+                    setMobileMenuOpen(false);
+                  }}
+                  className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                    viewMode === 'graph'
+                      ? 'bg-brand-primary text-white'
+                      : 'bg-abyss text-gray-400'
+                  }`}
+                >
+                  Graph
+                </button>
+                <button
+                  onClick={() => {
+                    setViewMode('comparison');
+                    setMobileMenuOpen(false);
+                  }}
+                  className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                    viewMode === 'comparison'
+                      ? 'bg-brand-primary text-white'
+                      : 'bg-abyss text-gray-400'
+                  }`}
+                >
+                  Compare
+                </button>
               </div>
+
+              {viewMode === 'graph' && (
+                <>
+                  {/* Search */}
+                  <SearchBar onSearch={handleSearch} isLoading={isLoading} />
+                  
+                  {/* Actions */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <StatsButton onOpenStats={() => { setShowStatsModal(true); setMobileMenuOpen(false); }} nodeCount={nodes.length} />
+                    <RefreshButton 
+                      onRefreshApp={handleHardRefresh}
+                      onRefreshEdges={handleRefreshEdges}
+                    />
+                    <SaveGraphButton disabled={nodes.length === 0} />
+                    <LoadGraphButton onLoad={handleGraphLoad} />
+                  </div>
+                </>
+              )}
             </div>
           </div>
         )}
@@ -217,24 +283,30 @@ function AppContent() {
         </div>
       )}
 
-      {/* Graph Canvas */}
+      {/* Main Content Area */}
       <div className="flex-1 relative overflow-hidden">
-        <GraphCanvas 
-          onNodeClick={handleNodeClick}
-          onNodeRightClick={handleNodeRightClick}
-          isSidebarOpen={showWikiModal}
-        />
-        
-        {nodes.length === 0 && !isLoading && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none px-4">
-            <div className="text-center space-y-4">
-              <div className="inline-flex items-center justify-center w-16 h-16 md:w-20 md:h-20 rounded-3xl bg-abyss-surface border border-abyss-highlight shadow-2xl mb-4">
-                <img src={weLogo} alt="" className="w-8 h-8 md:w-10 md:h-10 opacity-50 grayscale" />
+        {viewMode === 'graph' ? (
+          <>
+            <GraphCanvas 
+              onNodeClick={handleNodeClick}
+              onNodeRightClick={handleNodeRightClick}
+              isSidebarOpen={showWikiModal}
+            />
+            
+            {nodes.length === 0 && !isLoading && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none px-4">
+                <div className="text-center space-y-4">
+                  <div className="inline-flex items-center justify-center w-16 h-16 md:w-20 md:h-20 rounded-3xl bg-abyss-surface border border-abyss-highlight shadow-2xl mb-4">
+                    <img src={weLogo} alt="" className="w-8 h-8 md:w-10 md:h-10 opacity-50 grayscale" />
+                  </div>
+                  <h2 className="text-xl md:text-2xl font-bold text-gray-700">Ready to Explore</h2>
+                  <p className="text-sm md:text-base text-gray-600">Search a topic to generate the graph</p>
+                </div>
               </div>
-              <h2 className="text-xl md:text-2xl font-bold text-gray-700">Ready to Explore</h2>
-              <p className="text-sm md:text-base text-gray-600">Search a topic to generate the graph</p>
-            </div>
-          </div>
+            )}
+          </>
+        ) : (
+          <GraphComparison />
         )}
       </div>
 
