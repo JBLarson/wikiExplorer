@@ -1,4 +1,3 @@
-// frontend/src/components/GraphComparison.tsx
 import { useState } from 'react';
 import { MagnifyingGlassIcon, XMarkIcon, ArrowsUpDownIcon } from '@heroicons/react/24/outline';
 
@@ -30,6 +29,8 @@ interface GraphResult {
 
 type SortField = 'rank' | 'article' | 'depth' | 'total_edges' | 'outgoing' | 'incoming' | 'neighbor_connectivity' | 'expansions';
 type SortOrder = 'asc' | 'desc';
+
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001';
 
 export function GraphComparison() {
   const [inputs, setInputs] = useState<GraphInput[]>([
@@ -63,7 +64,7 @@ export function GraphComparison() {
 
     setLoading(true);
     try {
-        const response = await fetch('/api/compare', {
+      const response = await fetch(`${API_BASE_URL}/api/compare`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ graphs: validInputs }),
@@ -103,17 +104,15 @@ export function GraphComparison() {
   }) || [];
 
   return (
-    <div className="min-h-screen bg-abyss p-6">
+    <div className="min-h-screen bg-abyss p-4 md:p-6">
       <div className="max-w-7xl mx-auto space-y-6">
         
-        {/* Header */}
-        <div className="bg-abyss-surface border border-abyss-border rounded-2xl p-6">
-          <h1 className="text-3xl font-bold text-white mb-2">Graph Comparison</h1>
-          <p className="text-gray-400">Compare statistics across multiple Wikipedia explorations</p>
+        <div className="bg-abyss-surface border border-abyss-border rounded-2xl p-4 md:p-6">
+          <h1 className="text-2xl md:text-3xl font-bold text-white mb-2">Graph Comparison</h1>
+          <p className="text-sm md:text-base text-gray-400">Compare statistics across multiple Wikipedia explorations</p>
         </div>
 
-        {/* Input Panel */}
-        <div className="bg-abyss-surface border border-abyss-border rounded-2xl p-6">
+        <div className="bg-abyss-surface border border-abyss-border rounded-2xl p-4 md:p-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-white">Topics</h2>
             <button
@@ -121,23 +120,21 @@ export function GraphComparison() {
               disabled={inputs.length >= 12}
               className="px-3 py-1.5 bg-brand-primary hover:bg-brand-glow text-white text-sm rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              + Add Topic ({inputs.length}/12)
+              + Add ({inputs.length}/12)
             </button>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {inputs.map((input, idx) => (
               <div key={idx} className="flex items-center gap-2 bg-abyss p-3 rounded-xl border border-abyss-border">
-                <div className="flex-1">
-                  <input
-                    type="text"
-                    value={input.article}
-                    onChange={(e) => updateInput(idx, 'article', e.target.value)}
-                    placeholder="Article name..."
-                    className="w-full px-3 py-2 bg-abyss-surface border border-abyss-border rounded-lg text-white placeholder-gray-600 focus:outline-none focus:border-brand-primary text-sm"
-                  />
-                </div>
-                <div className="w-24">
+                <input
+                  type="text"
+                  value={input.article}
+                  onChange={(e) => updateInput(idx, 'article', e.target.value)}
+                  placeholder="Article name..."
+                  className="flex-1 px-3 py-2 bg-abyss-surface border border-abyss-border rounded-lg text-white placeholder-gray-600 focus:outline-none focus:border-brand-primary text-sm"
+                />
+                <div className="w-20">
                   <input
                     type="number"
                     value={input.expansions}
@@ -146,7 +143,7 @@ export function GraphComparison() {
                     max="5"
                     className="w-full px-2 py-2 bg-abyss-surface border border-abyss-border rounded-lg text-white text-sm text-center focus:outline-none focus:border-brand-primary"
                   />
-                  <span className="text-xs text-gray-500 block text-center mt-0.5">exp.</span>
+                  <span className="text-xs text-gray-500 block text-center mt-0.5">exp</span>
                 </div>
                 {inputs.length > 1 && (
                   <button
@@ -179,12 +176,10 @@ export function GraphComparison() {
           </button>
         </div>
 
-        {/* Results */}
         {results.length > 0 && (
           <>
-            {/* Graph Selector */}
-            <div className="bg-abyss-surface border border-abyss-border rounded-2xl p-4">
-              <div className="flex items-center gap-2 overflow-x-auto">
+            <div className="bg-abyss-surface border border-abyss-border rounded-2xl p-4 overflow-x-auto">
+              <div className="flex items-center gap-2 min-w-max">
                 {results.map((result, idx) => (
                   <button
                     key={idx}
@@ -208,20 +203,17 @@ export function GraphComparison() {
               </div>
             </div>
 
-            {/* Table */}
-            <div className="bg-abyss-surface border border-abyss-border rounded-2xl overflow-hidden">
-              <div className="p-4 border-b border-abyss-border flex items-center justify-between">
-                <div>
-                  <h3 className="text-xl font-bold text-white">{results[selectedGraph].root_article}</h3>
-                  <p className="text-sm text-gray-400 mt-1">
-                    {results[selectedGraph].total_nodes} nodes • {results[selectedGraph].total_edges} edges • {results[selectedGraph].avg_edges_per_node} avg edges/node • Depth {results[selectedGraph].max_depth}
-                  </p>
-                </div>
+            <div className="bg-abyss-surface border border-abyss-border rounded-2xl overflow-hidden flex flex-col" style={{ height: 'calc(100vh - 28rem)' }}>
+              <div className="p-4 border-b border-abyss-border flex-shrink-0">
+                <h3 className="text-xl font-bold text-white">{results[selectedGraph].root_article}</h3>
+                <p className="text-sm text-gray-400 mt-1">
+                  {results[selectedGraph].total_nodes} nodes • {results[selectedGraph].total_edges} edges • {results[selectedGraph].avg_edges_per_node} avg edges/node • Depth {results[selectedGraph].max_depth}
+                </p>
               </div>
 
-              <div className="overflow-x-auto">
+              <div className="flex-1 overflow-auto custom-scrollbar">
                 <table className="w-full">
-                  <thead className="bg-abyss border-b border-abyss-border">
+                  <thead className="sticky top-0 bg-abyss border-b border-abyss-border z-10">
                     <tr>
                       {[
                         { field: 'rank' as SortField, label: 'Rank' },

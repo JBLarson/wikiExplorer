@@ -1,23 +1,12 @@
-# backend/routes/comparison_routes.py
-from flask import Blueprint, jsonify, request
-from collections import defaultdict
+from flask import Blueprint, jsonify, request, current_app
+import numpy as np
+from core.ranking import is_meta_page, calculate_multisignal_score
+from services.graph_calculations import normalize_node_id
 
 comparison_bp = Blueprint('comparison', __name__)
 
-@comparison_bp.route('/api/compare', methods=['POST'])
+@comparison_bp.route('/compare', methods=['POST'])
 def compare_graphs():
-    """
-    Compare statistics across multiple graph explorations.
-    
-    Request body:
-    {
-      "graphs": [
-        {"article": "Machine Learning", "expansions": 3},
-        {"article": "Quantum Computing", "expansions": 2},
-        ...
-      ]
-    }
-    """
     data = request.json
     graphs = data.get('graphs', [])
     
@@ -25,7 +14,6 @@ def compare_graphs():
         return jsonify({"error": "Provide 1-12 graphs"}), 400
     
     results = []
-    
     for graph_spec in graphs:
         article = graph_spec.get('article')
         max_expansions = graph_spec.get('expansions', 1)
@@ -33,7 +21,6 @@ def compare_graphs():
         if not article:
             continue
             
-        # Simulate exploration to specified depth
         stats = simulate_graph_exploration(article, max_expansions)
         results.append({
             "root_article": article,
@@ -48,40 +35,86 @@ def compare_graphs():
 
 
 def simulate_graph_exploration(root_article: str, max_expansions: int):
-    """
-    Simulate graph building to calculate statistics without storing full graph.
-    Returns aggregated metrics.
-    """
-    from core.search_engine import search_engine
-    from core.ranking import is_meta_page
-    import numpy as np
+    search_engine = current_app.search_engine
+    cursor = search_engine.metadata_db.cursor()
     
-    # Track nodes and edges
-    nodes = {}  # id -> {title, depth, edges}
-    edges = set()  # (source, target) tuples
-    to_expand = [(root_article, 0, 0)]  # (title, depth, expansion_count)
+    nodes = {}
+    edges = set()
+    to_expand = [(root_article, 0, 0)]
     expanded = set()
     
-    cursor = search_engine.metadata_db.cursor()
+    def get_related_articles(title: str, existing_labels: list, k: int = 7):
+        try:
+            query = title.replace('_', ' ')
+            embedding = search_engine.model.encode(
+                [query],
+                normalize_embeddings=True,
+                convert_to_numpy=True
+            ).astype(np.float32)
+            
+            search_size = min(200, search_engine.config.CANDIDATE_POOL_SIZE)
+            distances, indices = search_engine.index.search(embedding, search_size)
+            
+            candidate_ids = []
+            semantic_scores = {}
+            
+            for i, idx in enumerate(indices[0]):
+                idx_int = int(idx)
+                if idx_int >= 0:
+                    candidate_ids.append(idx_int)
+                    semantic_scores[idx_int] = float(distances[0][i])
+            
+            if not candidate_ids:
+                return []
+            
+            placeholders = ','.join('?' * len(candidate_ids))
+            query_columns = ['article_id', 'title', 'pagerank', 'pageviews']
+            query_sql = f"SELECT {', '.join(query_columns)} FROM articles WHERE article_id IN ({placeholders})"
+            cursor.execute(query_sql, candidate_ids)
+            
+            results = []
+            existing_normalized = [l.lower().replace(' ', '_') for l in existing_labels]
+            
+            for row in cursor.fetchall():
+                data = dict(row)
+                
+                if is_meta_page(data['title']):
+                    continue
+                
+                normalized_title = data['title'].replace(' ', '_').lower()
+                if normalized_title in existing_normalized:
+                    continue
+                
+                cand_id = data['article_id']
+                semantic_score = semantic_scores.get(cand_id, 0.0)
+                
+                final_score = calculate_multisignal_score(
+                    semantic_similarity=semantic_score,
+                    pagerank_score=data.get('pagerank', 0),
+                    pageview_count=data.get('pageviews', 0),
+                    title=data['title'],
+                    query=title
+                )
+                
+                results.append({
+                    'title': data['title'],
+                    'score': final_score
+                })
+            
+            results.sort(key=lambda x: x['score'], reverse=True)
+            return results[:k]
+            
+        except Exception as e:
+            print(f"Error fetching related for '{title}': {e}")
+            return []
     
     while to_expand:
         current_title, depth, exp_count = to_expand.pop(0)
-        node_id = current_title.lower().replace(' ', '_')
+        node_id = normalize_node_id(current_title)
         
         if node_id in expanded:
             continue
-            
-        # Get related articles
-        try:
-            response = requests.get(
-                f"http://localhost:5001/api/related/{current_title}",
-                params={"k": 7, "private": "true"}
-            )
-            related = response.json().get('results', [])
-        except:
-            continue
         
-        # Add node
         if node_id not in nodes:
             nodes[node_id] = {
                 "title": current_title,
@@ -92,19 +125,18 @@ def simulate_graph_exploration(root_article: str, max_expansions: int):
             }
         
         nodes[node_id]["expansion_count"] += 1
+        existing_labels = [n["title"] for n in nodes.values()]
+        related = get_related_articles(current_title, existing_labels, k=7)
         
-        # Add edges and child nodes
         for rel in related:
             child_title = rel['title']
-            child_id = child_title.lower().replace(' ', '_')
+            child_id = normalize_node_id(child_title)
             
-            # Add edge
             edge = (node_id, child_id)
             if edge not in edges:
                 edges.add(edge)
                 nodes[node_id]["outgoing"] += 1
                 
-                # Initialize child node
                 if child_id not in nodes:
                     nodes[child_id] = {
                         "title": child_title,
@@ -116,7 +148,6 @@ def simulate_graph_exploration(root_article: str, max_expansions: int):
                 
                 nodes[child_id]["incoming"] += 1
                 
-                # Queue for expansion if within limits
                 if (exp_count < max_expansions and 
                     child_id not in expanded and
                     depth + 1 <= max_expansions):
@@ -124,42 +155,34 @@ def simulate_graph_exploration(root_article: str, max_expansions: int):
         
         expanded.add(node_id)
     
-    # Calculate neighbor connectivity
     for node_id, node_data in nodes.items():
         neighbor_conn = 0
         for edge in edges:
             if edge[0] == node_id:
                 neighbor_id = edge[1]
-                neighbor_conn += nodes[neighbor_id]["outgoing"] + nodes[neighbor_id]["incoming"]
+                if neighbor_id in nodes:
+                    neighbor_conn += nodes[neighbor_id]["outgoing"] + nodes[neighbor_id]["incoming"]
             elif edge[1] == node_id:
                 neighbor_id = edge[0]
-                neighbor_conn += nodes[neighbor_id]["outgoing"] + nodes[neighbor_id]["incoming"]
+                if neighbor_id in nodes:
+                    neighbor_conn += nodes[neighbor_id]["outgoing"] + nodes[neighbor_id]["incoming"]
         node_data["neighbor_connectivity"] = neighbor_conn
     
-    # Build ranked results
-    ranked_nodes = sorted(
-        [
-            {
-                "rank": idx + 1,
-                "article": data["title"],
-                "depth": data["depth"],
-                "total_edges": data["outgoing"] + data["incoming"],
-                "outgoing": data["outgoing"],
-                "incoming": data["incoming"],
-                "neighbor_connectivity": data["neighbor_connectivity"],
-                "expansions": data["expansion_count"],
-            }
-            for idx, (node_id, data) in enumerate(
-                sorted(
-                    nodes.items(),
-                    key=lambda x: x[1]["outgoing"] + x[1]["incoming"],
-                    reverse=True
-                )
-            )
-        ],
-        key=lambda x: x["total_edges"],
-        reverse=True
-    )
+    ranked_nodes = [
+        {
+            "rank": idx + 1,
+            "article": data["title"],
+            "depth": data["depth"],
+            "total_edges": data["outgoing"] + data["incoming"],
+            "outgoing": data["outgoing"],
+            "incoming": data["incoming"],
+            "neighbor_connectivity": data["neighbor_connectivity"],
+            "expansions": data["expansion_count"],
+        }
+        for idx, (node_id, data) in enumerate(
+            sorted(nodes.items(), key=lambda x: x[1]["outgoing"] + x[1]["incoming"], reverse=True)
+        )
+    ]
     
     total_nodes = len(nodes)
     total_edges = len(edges)
@@ -176,15 +199,12 @@ def simulate_graph_exploration(root_article: str, max_expansions: int):
 
 
 def generate_comparison_metrics(results):
-    """Generate cross-graph comparison insights."""
     if len(results) < 2:
         return {}
     
-    # Find common articles
     all_articles = [set(n["article"] for n in r["nodes"]) for r in results]
     common = set.intersection(*all_articles) if all_articles else set()
     
-    # Density comparison
     densities = [
         r["total_edges"] / r["total_nodes"] if r["total_nodes"] > 0 else 0
         for r in results
