@@ -11,8 +11,6 @@ import weLogo from '../assets/wikiExplorer-logo-300.png';
 interface MobileMenuProps {
   isOpen: boolean;
   onToggle: () => void;
-  viewMode: 'graph' | 'comparison';
-  onViewModeChange: (mode: 'graph' | 'comparison') => void;
   backendOnline: boolean | null;
   nodeCount: number;
   onSearch: (query: string, isPrivate: boolean) => void;
@@ -27,8 +25,6 @@ interface MobileMenuProps {
 export function MobileMenu({
   isOpen,
   onToggle,
-  viewMode,
-  onViewModeChange,
   backendOnline,
   nodeCount,
   onSearch,
@@ -59,7 +55,7 @@ export function MobileMenu({
 
         {/* Stats + Menu */}
         <div className="flex items-center gap-3">
-          {viewMode === 'graph' && <Counter />}
+          <Counter />
           <button
             onClick={onToggle}
             className="p-2 hover:bg-abyss-hover rounded-lg transition-colors"
@@ -77,53 +73,19 @@ export function MobileMenu({
       {isOpen && (
         <div className="pointer-events-auto bg-abyss-surface/98 backdrop-blur-xl border-b border-abyss-border shadow-2xl animate-slide-down">
           <div className="p-4 space-y-3">
-            {/* View Mode Toggle */}
-            <div className="flex gap-2">
-              <button
-                onClick={() => {
-                  onViewModeChange('graph');
-                  onToggle();
-                }}
-                className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                  viewMode === 'graph'
-                    ? 'bg-brand-primary text-white'
-                    : 'bg-abyss text-gray-400'
-                }`}
-              >
-                Graph
-              </button>
-              <button
-                onClick={() => {
-                  onViewModeChange('comparison');
-                  onToggle();
-                }}
-                className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                  viewMode === 'comparison'
-                    ? 'bg-brand-primary text-white'
-                    : 'bg-abyss text-gray-400'
-                }`}
-              >
-                Compare
-              </button>
+            {/* Search */}
+            <SearchBar onSearch={onSearch} isLoading={isLoading} />
+            
+            {/* Actions */}
+            <div className="grid grid-cols-2 gap-2">
+              <StatsButton onOpenStats={() => { onOpenStats(); onToggle(); }} nodeCount={nodeCount} />
+              <RefreshButton 
+                onRefreshApp={onRefreshApp}
+                onRefreshEdges={onRefreshEdges}
+              />
+              <SaveGraphButton disabled={!nodesExist} />
+              <LoadGraphButton onLoad={onGraphLoad} />
             </div>
-
-            {viewMode === 'graph' && (
-              <>
-                {/* Search */}
-                <SearchBar onSearch={onSearch} isLoading={isLoading} />
-                
-                {/* Actions */}
-                <div className="grid grid-cols-2 gap-2">
-                  <StatsButton onOpenStats={() => { onOpenStats(); onToggle(); }} nodeCount={nodeCount} />
-                  <RefreshButton 
-                    onRefreshApp={onRefreshApp}
-                    onRefreshEdges={onRefreshEdges}
-                  />
-                  <SaveGraphButton disabled={!nodesExist} />
-                  <LoadGraphButton onLoad={onGraphLoad} />
-                </div>
-              </>
-            )}
           </div>
         </div>
       )}
