@@ -1,8 +1,8 @@
 // frontend/src/App.tsx
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { XMarkIcon } from '@heroicons/react/24/outline';
-import { GraphCanvas } from './components/GraphCanvas';
+import { GraphCanvas, GraphCanvasRef } from './components/GraphCanvas';
 import { NodeOutline } from './components/NodeOutline';
 import { MobileMenu } from './components/MobileMenu';
 import { RefreshButton } from './components/RefreshButton';
@@ -10,7 +10,8 @@ import { SearchBar } from './components/SearchBar';
 import { GraphStatsModal } from './components/modals/GraphStats';
 import { WikiModal } from './components/modals/WikiModal';
 import { StatsButton } from './components/StatsButton';
-import { FileMenu } from './components/FileMenu'; // New Component
+import { FileMenu } from './components/FileMenu';
+import { FindNode } from './components/FindNode';
 import { Counter } from './components/Counter';
 import { useGraphStore } from './stores/graphStore';
 import { checkBackendHealth } from './lib/wikipedia';
@@ -38,6 +39,9 @@ function AppContent() {
   const [error, setError] = useState<string | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // Ref to control graph camera
+  const graphCanvasRef = useRef<GraphCanvasRef>(null);
 
   const { loadArticle } = useArticleLoader();
   const { expandNode } = useNodeExpander();
@@ -70,6 +74,14 @@ function AppContent() {
     }
   }, [nodes, loadArticle, expandNode, setSelectedNode]);
 
+
+  // Handler for FindNode component
+  const handleFindNodeSelect = useCallback((nodeId: string) => {
+    setSelectedNode(nodeId);
+    graphCanvasRef.current?.focusNode(nodeId);
+  }, [setSelectedNode]);
+
+
   const handleNodeRightClick = useCallback((nodeId: string) => {
     const node = nodes.find(n => n.id === nodeId);
     if (!node) return;
@@ -81,6 +93,7 @@ function AppContent() {
     const node = nodes.find(n => n.id === nodeId);
     if (!node) return;
     setSelectedNode(nodeId);
+    graphCanvasRef.current?.focusNode(nodeId);
   }, [nodes, setSelectedNode]);
 
   const handleSearch = useCallback((query: string, isPrivate: boolean = false) => {
@@ -142,7 +155,8 @@ function AppContent() {
             <StatsButton onOpenStats={() => setShowStatsModal(true)} nodeCount={nodes.length} />
             
             <SearchBar onSearch={handleSearch} isLoading={isLoading} />
-            
+            <FindNode onNodeSelect={handleFindNodeSelect} />
+
             {/* New Unified File Menu */}
             <FileMenu 
               onGraphLoad={handleGraphLoad}
@@ -185,13 +199,15 @@ function AppContent() {
 
       {/* Main Content Area */}
       <div className="flex-1 relative overflow-hidden">
+        {/* Node Outline Sidebar */}
         <NodeOutline 
           isOpen={sidebarOpen}
           onToggle={() => setSidebarOpen(!sidebarOpen)}
           onNodeClick={handleStatsNodeClick}
         />
 
-        <GraphCanvas 
+        <GraphCanvas
+          ref={graphCanvasRef}
           onNodeClick={handleNodeClick}
           onNodeRightClick={handleNodeRightClick}
           isSidebarOpen={showWikiModal || sidebarOpen}
