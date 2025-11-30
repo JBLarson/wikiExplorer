@@ -1,9 +1,11 @@
 // frontend/src/App.tsx
 import { useState, useCallback, useEffect } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { XMarkIcon, Bars3Icon } from '@heroicons/react/24/outline';
+import { XMarkIcon } from '@heroicons/react/24/outline';
 import { GraphCanvas } from './components/GraphCanvas';
 import { GraphComparison } from './components/GraphComparison';
+import { NodeOutline } from './components/NodeOutline';
+import { MobileMenu } from './components/MobileMenu';
 import { RefreshButton } from './components/RefreshButton';
 import { SearchBar } from './components/SearchBar';
 import { GraphStatsModal } from './components/modals/GraphStats';
@@ -40,6 +42,7 @@ function AppContent() {
   const [backendOnline, setBackendOnline] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const { loadArticle } = useArticleLoader();
   const { expandNode } = useNodeExpander();
@@ -103,13 +106,15 @@ function AppContent() {
           setShowWikiModal(false);
         } else if (mobileMenuOpen) {
           setMobileMenuOpen(false);
+        } else if (sidebarOpen) {
+          setSidebarOpen(false);
         }
       }
     };
     
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [showStatsModal, showWikiModal, mobileMenuOpen]);
+  }, [showStatsModal, showWikiModal, mobileMenuOpen, sidebarOpen]);
 
   return (
     <div className="flex flex-col h-screen w-screen bg-abyss font-sans text-gray-100 overflow-hidden">
@@ -182,94 +187,21 @@ function AppContent() {
       </div>
 
       {/* Mobile Header */}
-      <div className="md:hidden absolute top-0 left-0 w-full z-50 pointer-events-none">
-        <div className="flex items-center justify-between p-4 bg-abyss-surface/95 backdrop-blur-xl border-b border-abyss-border pointer-events-auto">
-          
-          {/* Logo */}
-          <div className="flex items-center gap-2">
-            <img src={weLogo} alt="wikiExplorer" className="w-8 h-8 opacity-90" />
-            <div>
-              <h1 className="text-sm font-bold text-white">wikiExplorer</h1>
-              <div className="flex items-center gap-1.5">
-                <div className={`w-1 h-1 rounded-full ${backendOnline ? 'bg-green-500' : 'bg-red-500'}`} />
-                <span className="text-[8px] uppercase tracking-wider text-gray-500">
-                  {backendOnline ? 'Online' : 'Offline'}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Stats + Menu */}
-          <div className="flex items-center gap-3">
-            {viewMode === 'graph' && <Counter />}
-            <button
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="p-2 hover:bg-abyss-hover rounded-lg transition-colors"
-            >
-              {mobileMenuOpen ? (
-                <XMarkIcon className="w-6 h-6 text-white" />
-              ) : (
-                <Bars3Icon className="w-6 h-6 text-white" />
-              )}
-            </button>
-          </div>
-        </div>
-
-        {/* Mobile Menu Dropdown */}
-        {mobileMenuOpen && (
-          <div className="pointer-events-auto bg-abyss-surface/98 backdrop-blur-xl border-b border-abyss-border shadow-2xl animate-slide-down">
-            <div className="p-4 space-y-3">
-              {/* View Mode Toggle */}
-              <div className="flex gap-2">
-                <button
-                  onClick={() => {
-                    setViewMode('graph');
-                    setMobileMenuOpen(false);
-                  }}
-                  className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                    viewMode === 'graph'
-                      ? 'bg-brand-primary text-white'
-                      : 'bg-abyss text-gray-400'
-                  }`}
-                >
-                  Graph
-                </button>
-                <button
-                  onClick={() => {
-                    setViewMode('comparison');
-                    setMobileMenuOpen(false);
-                  }}
-                  className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                    viewMode === 'comparison'
-                      ? 'bg-brand-primary text-white'
-                      : 'bg-abyss text-gray-400'
-                  }`}
-                >
-                  Compare
-                </button>
-              </div>
-
-              {viewMode === 'graph' && (
-                <>
-                  {/* Search */}
-                  <SearchBar onSearch={handleSearch} isLoading={isLoading} />
-                  
-                  {/* Actions */}
-                  <div className="grid grid-cols-2 gap-2">
-                    <StatsButton onOpenStats={() => { setShowStatsModal(true); setMobileMenuOpen(false); }} nodeCount={nodes.length} />
-                    <RefreshButton 
-                      onRefreshApp={handleHardRefresh}
-                      onRefreshEdges={handleRefreshEdges}
-                    />
-                    <SaveGraphButton disabled={nodes.length === 0} />
-                    <LoadGraphButton onLoad={handleGraphLoad} />
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
+      <MobileMenu
+        isOpen={mobileMenuOpen}
+        onToggle={() => setMobileMenuOpen(!mobileMenuOpen)}
+        viewMode={viewMode}
+        onViewModeChange={setViewMode}
+        backendOnline={backendOnline}
+        nodeCount={nodes.length}
+        onSearch={handleSearch}
+        isLoading={isLoading}
+        onOpenStats={() => setShowStatsModal(true)}
+        onRefreshApp={handleHardRefresh}
+        onRefreshEdges={handleRefreshEdges}
+        onGraphLoad={handleGraphLoad}
+        nodesExist={nodes.length > 0}
+      />
 
       {/* Error Toast */}
       {error && (
@@ -287,12 +219,21 @@ function AppContent() {
       <div className="flex-1 relative overflow-hidden">
         {viewMode === 'graph' ? (
           <>
+            {/* Node Outline Sidebar */}
+            <NodeOutline 
+              isOpen={sidebarOpen}
+              onToggle={() => setSidebarOpen(!sidebarOpen)}
+              onNodeClick={handleStatsNodeClick}
+            />
+
+            {/* Graph Canvas */}
             <GraphCanvas 
               onNodeClick={handleNodeClick}
               onNodeRightClick={handleNodeRightClick}
-              isSidebarOpen={showWikiModal}
+              isSidebarOpen={showWikiModal || sidebarOpen}
             />
             
+            {/* Empty State */}
             {nodes.length === 0 && !isLoading && (
               <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none px-4">
                 <div className="text-center space-y-4">
