@@ -1,6 +1,6 @@
 // frontend/src/components/GraphCanvas.tsx
 // @refresh reset
-import { useEffect, useRef, useCallback, useMemo } from 'react';
+import { useEffect, useRef, useCallback, useMemo, forwardRef, useImperativeHandle } from 'react';
 import ForceGraph3D, { ForceGraphMethods } from 'react-force-graph-3d';
 import { useGraphStore } from '../stores/graphStore';
 import * as THREE from 'three';
@@ -14,7 +14,11 @@ interface GraphCanvasProps {
   isSidebarOpen: boolean;
 }
 
-export function GraphCanvas({ onNodeClick, onNodeRightClick, isSidebarOpen }: GraphCanvasProps) {
+export interface GraphCanvasRef {
+  focusNode: (nodeId: string) => void;
+}
+
+export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNodeClick, onNodeRightClick, isSidebarOpen }, ref) => {
   const fgRef = useRef<ForceGraphMethods>();
   const containerRef = useRef<HTMLDivElement>(null);
   
@@ -39,6 +43,30 @@ export function GraphCanvas({ onNodeClick, onNodeRightClick, isSidebarOpen }: Gr
       }))
     };
   }, [nodes, edges, rootNode]);
+
+  // Expose focusNode method to parent
+  useImperativeHandle(ref, () => ({
+    focusNode: (nodeId: string) => {
+      if (!fgRef.current) return;
+      
+      // FIX: Use the local graphData variable instead of querying the ref.
+      // The library mutates these objects to add x, y, z coordinates.
+      const targetNode = graphData.nodes.find((n: any) => n.id === nodeId);
+      
+      // Check if node exists and has coordinates (simulation started)
+      if (targetNode && typeof (targetNode as any).x === 'number') {
+        const distance = 220;
+        const node = targetNode as any;
+        const distRatio = 1 + distance / Math.hypot(node.x, node.y, node.z);
+        
+        fgRef.current.cameraPosition(
+          { x: node.x * distRatio, y: node.y * distRatio, z: node.z * distRatio },
+          node, // Look at the node
+          1800  // Transition duration (ms)
+        );
+      }
+    }
+  }), [graphData]); // <--- Important: Re-create handle when graphData changes
 
   // Handle resize with proper sizing
   useEffect(() => {
@@ -180,7 +208,6 @@ export function GraphCanvas({ onNodeClick, onNodeRightClick, isSidebarOpen }: Gr
             isSelected: node.id === selectedNode,
             isRoot: node.id === rootNode,
             expansionCount: node?.expansionCount ?? 0,
-
           });
         }}
         linkThreeObject={() => {
@@ -212,4 +239,4 @@ export function GraphCanvas({ onNodeClick, onNodeRightClick, isSidebarOpen }: Gr
       />
     </div>
   );
-}
+});
