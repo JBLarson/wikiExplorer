@@ -11,46 +11,29 @@ interface NodeRenderData {
   isSelected: boolean;
   isRoot: boolean;
   expansionCount?: number;
-  connectionCount?: number;
 }
 
 // Cache textures to avoid recreating canvases
 const textureCache = new Map<string, THREE.Texture>();
 
-/**
- * Advanced color system based on multiple factors:
- * - Depth (primary gradient)
- * - Importance (saturation/brightness boost)
- * - Expansion state (hue shift)
- */
 function getNodeColor(node: NodeRenderData): THREE.Color {
   const depth = Math.min(node.group, 6);
   
-  // Root node gets special treatment
   if (node.isRoot) {
-    return new THREE.Color(0xF59E0B); // Amber - clear entry point
+    return new THREE.Color(0xF59E0B); // Amber
   }
   
-  // Selected state
   if (node.isSelected) {
-    return new THREE.Color(0xFFFFFF);
+    return new THREE.Color(0xFFFFFF); // White
   }
   
-  // Determine if node is "important" (high connectivity or expanded multiple times)
   const expansionCount = node.expansionCount || 0;
   const isImportant = expansionCount >= 2;
   
-  // Base color progression using HSL for smooth gradients
-  // Hue: 280° (purple) → 240° (blue) → 200° (cyan) → 160° (teal) → 120° (green)
-  const baseHue = 280 - (depth * 27); // Smooth 27° shift per depth level
-  
-  // Saturation: Deeper nodes are more saturated (more vibrant)
+  const baseHue = 280 - (depth * 27);
   const baseSaturation = 0.7 + (depth * 0.04);
-  
-  // Lightness: Gradually dimmer as we go deeper, but not too dark
   const baseLightness = 0.65 - (depth * 0.06);
   
-  // Boost important nodes
   const saturation = isImportant ? Math.min(baseSaturation + 0.15, 1.0) : baseSaturation;
   const lightness = isImportant ? Math.min(baseLightness + 0.1, 0.8) : baseLightness;
   
@@ -60,9 +43,6 @@ function getNodeColor(node: NodeRenderData): THREE.Color {
   return color;
 }
 
-/**
- * Get glow intensity based on node state
- */
 function getGlowIntensity(node: NodeRenderData): number {
   if (node.isSelected) return 0.8;
   if (node.isRoot) return 0.6;
@@ -74,56 +54,69 @@ function getGlowIntensity(node: NodeRenderData): number {
   return 0.2;
 }
 
-export function createNodeObject(node: NodeRenderData): THREE.Group {
+export function createNodeObject(node: NodeRenderData, quality: 'high' | 'low'): THREE.Group {
   const baseColor = getNodeColor(node);
   const nodeSize = node.val * 0.45;
   const group = new THREE.Group();
 
-  // Wireframe sphere with dynamic opacity
-  const wireframeGeometry = new THREE.SphereGeometry(nodeSize, 7, 7);
-  const wireframeOpacity = node.isSelected ? 1.0 : 
-                           node.isRoot ? 0.9 :
-                           (node.expansionCount || 0) >= 1 ? 0.8 : 0.7;
-  
-  const wireframeMaterial = new THREE.MeshBasicMaterial({
-    color: baseColor,
-    wireframe: true,
-    transparent: true,
-    opacity: wireframeOpacity,
-  });
-  
-  const wireframeMesh = new THREE.Mesh(wireframeGeometry, wireframeMaterial);
-  group.add(wireframeMesh);
+  // --- MESH RENDERER ---
+  if (quality === 'high') {
+    // 1. Wireframe
+    const wireframeGeometry = new THREE.SphereGeometry(nodeSize, 7, 7);
+    const wireframeOpacity = node.isSelected ? 1.0 : 
+                             node.isRoot ? 0.9 :
+                             (node.expansionCount || 0) >= 1 ? 0.8 : 0.7;
+    
+    const wireframeMaterial = new THREE.MeshBasicMaterial({
+      color: baseColor,
+      wireframe: true,
+      transparent: true,
+      opacity: wireframeOpacity,
+    });
+    group.add(new THREE.Mesh(wireframeGeometry, wireframeMaterial));
 
-  // Glow sphere with variable intensity
-  const glowGeometry = new THREE.SphereGeometry(nodeSize * 1.15, 16, 16);
-  const glowMaterial = new THREE.ShaderMaterial({
-    uniforms: {
-      color: { value: baseColor },
-      intensity: { value: getGlowIntensity(node) },
-    },
-    vertexShader: nodeGlowVertexShader,
-    fragmentShader: nodeGlowFragmentShader,
-    transparent: true,
-    side: THREE.BackSide,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-  });
-  
-  const glowMesh = new THREE.Mesh(glowGeometry, glowMaterial);
-  group.add(glowMesh);
+    // 2. Glow Shader
+    const glowGeometry = new THREE.SphereGeometry(nodeSize * 1.15, 16, 16);
+    const glowMaterial = new THREE.ShaderMaterial({
+      uniforms: {
+        color: { value: baseColor },
+        intensity: { value: getGlowIntensity(node) },
+      },
+      vertexShader: nodeGlowVertexShader,
+      fragmentShader: nodeGlowFragmentShader,
+      transparent: true,
+      side: THREE.BackSide,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    group.add(new THREE.Mesh(glowGeometry, glowMaterial));
+  } else {
+    // Low Quality: Simple solid sphere
+    const geometry = new THREE.SphereGeometry(nodeSize, 8, 8); 
+    const material = new THREE.MeshLambertMaterial({
+      color: baseColor,
+      transparent: true,
+      opacity: node.isSelected || node.isRoot ? 1.0 : 0.8,
+    });
+    group.add(new THREE.Mesh(geometry, material));
+  }
 
-  // Text sprite (cached)
-  const cacheKey = `${node.label}-${nodeSize}-${node.isSelected}-${node.isRoot}`;
+  // --- TEXT SPRITE ---
+  // Update cache key to include quality setting so we don't serve white text in low mode
+  const cacheKey = `${node.label}-${nodeSize}-${node.isSelected}-${node.isRoot}-${quality}`;
   let texture = textureCache.get(cacheKey);
   
   if (!texture) {
-    texture = createTextTexture(node.label, baseColor, nodeSize, node.isSelected || node.isRoot);
+    texture = createTextTexture(
+      node.label, 
+      baseColor, 
+      nodeSize, 
+      node.isSelected || node.isRoot, 
+      quality
+    );
     textureCache.set(cacheKey, texture);
     
-    // Clear old textures if cache gets too large
     if (textureCache.size > 200) {
-      // ✅ FIX: Handle undefined properly
       const firstKey = Array.from(textureCache.keys())[0];
       if (firstKey) {
         const oldTexture = textureCache.get(firstKey);
@@ -153,7 +146,8 @@ function createTextTexture(
   label: string,
   color: THREE.Color,
   nodeSize: number,
-  isHighlighted: boolean
+  isHighlighted: boolean,
+  quality: 'high' | 'low' // Added quality param
 ): THREE.Texture {
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d')!;
@@ -207,11 +201,24 @@ function createTextTexture(
 
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.font = `bold ${fontSize}px Inter`;
-  ctx.fillStyle = isHighlighted ? '#FFFFFF' : '#F3F4F6';
+  
+  // --- COLOR LOGIC FIX ---
+  if (quality === 'low' && isHighlighted) {
+    // In low quality, highlighted nodes are solid bright spheres -> Use Black Text
+    ctx.fillStyle = '#000000';
+  } else {
+    // In high quality (wireframe) or unselected low quality -> Use White/Grey Text
+    ctx.fillStyle = isHighlighted ? '#FFFFFF' : '#F3F4F6';
+  }
+  
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.shadowColor = color.getStyle();
-  ctx.shadowBlur = isHighlighted ? 20 : 15;
+  
+  // Remove shadow for black text to make it crisper
+  if (!(quality === 'low' && isHighlighted)) {
+    ctx.shadowColor = color.getStyle();
+    ctx.shadowBlur = isHighlighted ? 20 : 15;
+  }
 
   const startY = (canvas.height - totalHeight) / 2 + lineHeight / 2;
   lines.forEach((line, index) => {
@@ -225,7 +232,6 @@ function createTextTexture(
   return texture;
 }
 
-// Export color mapping for legend/stats (optional future use)
 export function getDepthColor(depth: number): string {
   const hue = 280 - (Math.min(depth, 6) * 27);
   const saturation = 70 + (depth * 4);

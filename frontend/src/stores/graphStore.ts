@@ -15,10 +15,12 @@ interface GraphStore extends GraphState {
   getConnectedNodes: (nodeId: string) => GraphNode[];
   incrementExpansionCount: (nodeId: string) => void;
   
-  // NEW: Add these methods
   exportGraphToJSON: (name: string) => void;
   importGraphFromJSON: (savedGraph: SavedGraph) => void;
   getGraphMetadata: () => SavedGraph['metadata'];
+
+  graphicsQuality: 'high' | 'low';
+  setGraphicsQuality: (quality: 'high' | 'low') => void;
 }
 
 export const useGraphStore = create<GraphStore>((set, get) => ({
@@ -28,6 +30,9 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
   rootNode: null,
   history: [],
   isLoading: false,
+  graphicsQuality: 'high', // Default to pretty
+
+  setGraphicsQuality: (quality) => set({ graphicsQuality: quality }),
   
   addNode: (node) =>
     set((state) => {

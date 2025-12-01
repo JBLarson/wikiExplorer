@@ -25,7 +25,7 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
   const sharedTimeUniform = useRef({ value: 0 });
   const animationFrameRef = useRef<number>();
   
-  const { nodes, edges, selectedNode, rootNode } = useGraphStore();
+  const { nodes, edges, selectedNode, rootNode, graphicsQuality } = useGraphStore();
 
   const graphData = useMemo(() => {
     return {
@@ -33,7 +33,8 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
         id: n.id, 
         group: n.depth,
         label: n.label,
-        val: n.id === rootNode ? 50 : 35 - (Math.min(n.depth, 5) * 2)
+        val: n.id === rootNode ? 50 : 35 - (Math.min(n.depth, 5) * 2),
+        expansionCount: n.expansionCount 
       })),
       links: edges.map(e => ({ 
         source: e.source, 
@@ -44,16 +45,14 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
     };
   }, [nodes, edges, rootNode]);
 
-  // Expose focusNode method to parent
   useImperativeHandle(ref, () => ({
     focusNode: (nodeId: string) => {
       if (!fgRef.current) return;
       
-      // FIX: Use the local graphData variable instead of querying the ref.
-      // The library mutates these objects to add x, y, z coordinates.
-      const targetNode = graphData.nodes.find((n: any) => n.id === nodeId);
+      // FIX: Cast to any to access graphData() which is missing from the TS definition
+      const currentGraph = (fgRef.current as any).graphData();
+      const targetNode = currentGraph.nodes.find((n: any) => n.id === nodeId);
       
-      // Check if node exists and has coordinates (simulation started)
       if (targetNode && typeof (targetNode as any).x === 'number') {
         const distance = 220;
         const node = targetNode as any;
@@ -61,80 +60,68 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
         
         fgRef.current.cameraPosition(
           { x: node.x * distRatio, y: node.y * distRatio, z: node.z * distRatio },
-          node, // Look at the node
-          1800  // Transition duration (ms)
+          node, 
+          1800  
         );
       }
     }
-  }), [graphData]); // <--- Important: Re-create handle when graphData changes
+  }), []);
 
-  // Handle resize with proper sizing
+  // Handle Resize
   useEffect(() => {
     if (!containerRef.current || !fgRef.current) return;
-
     const handleResize = () => {
       if (containerRef.current && fgRef.current) {
         const { width, height } = containerRef.current.getBoundingClientRect();
         const methods = fgRef.current as any;
-        
-        if (methods.width && methods.height && width > 0 && height > 0) {
+        if (methods.width && methods.height) {
           methods.width(width);
           methods.height(height);
         }
       }
     };
-
-    // Initial size
     handleResize();
-
-    // Use ResizeObserver for smooth resizing
     const resizeObserver = new ResizeObserver(handleResize);
     resizeObserver.observe(containerRef.current);
-
     return () => resizeObserver.disconnect();
   }, []);
 
-  // Sidebar triggers resize
+  // Sidebar resize trigger
   useEffect(() => {
     const timer = setTimeout(() => {
       if (containerRef.current && fgRef.current) {
         const { width, height } = containerRef.current.getBoundingClientRect();
         const methods = fgRef.current as any;
-        
-        if (methods.width && methods.height && width > 0 && height > 0) {
+        if (methods.width && methods.height) {
           methods.width(width);
           methods.height(height);
         }
       }
-    }, 300); // Wait for sidebar animation
-
+    }, 300);
     return () => clearTimeout(timer);
   }, [isSidebarOpen]);
 
-  // Configure forces AFTER graph is initialized
+  // Physics Forces
   useEffect(() => {
     if (!fgRef.current) return;
-    
     const linkForce = fgRef.current.d3Force('link');
     if (linkForce) {
       linkForce
         .distance((link: any) => link.distance || 150)
         .strength(1.0);
     }
-    
     fgRef.current.d3Force('charge')?.strength(-400);
     fgRef.current.d3Force('center')?.strength(0.2);
-    
   }, []);
 
-  // Reheat simulation when nodes are added
+  // Reheat simulation
   useEffect(() => {
     if (fgRef.current && nodes.length > 0) {
       fgRef.current.d3ReheatSimulation();
     }
   }, [nodes.length]);
 
-  // Setup background scene
+  // Background & Animation Loop
   useEffect(() => {
     if (!fgRef.current) return;
     const scene = fgRef.current.scene();
@@ -190,15 +177,16 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
         enableNodeDrag={false}
         rendererConfig={{
           powerPreference: 'high-performance',
-          antialias: true,
+          antialias: graphicsQuality === 'high',
           alpha: false,
-          precision: 'highp',
+          precision: graphicsQuality === 'high' ? 'highp' : 'mediump',
         }}
         nodeLabel="label"
         nodeRelSize={7}
-        nodeResolution={24}
+        nodeResolution={graphicsQuality === 'high' ? 24 : 8}
         nodeOpacity={1}
         
+        // Pass graphicsQuality to renderer
         nodeThreeObject={(node: any) => {
           return createNodeObject({
             id: node.id,
@@ -208,14 +196,16 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
             isSelected: node.id === selectedNode,
             isRoot: node.id === rootNode,
             expansionCount: node?.expansionCount ?? 0,
-          });
+          }, graphicsQuality);
         }}
-        linkThreeObject={() => {
+
+        // Conditionally render expensive Mist effect
+        linkThreeObject={graphicsQuality === 'high' ? () => {
           return createMistConnection(sharedTimeUniform.current);
-        }}
-        linkPositionUpdate={(obj: any, { start, end }: any) => {
+        } : undefined}
+
+        linkPositionUpdate={graphicsQuality === 'high' ? (obj: any, { start, end }: any) => {
           const material = obj.material as THREE.ShaderMaterial;
-          
           if (material && material.uniforms) {
             material.uniforms.startPos.value.copy(start);
             material.uniforms.endPos.value.copy(end);
@@ -223,10 +213,13 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
           obj.position.set(0, 0, 0);
           obj.rotation.set(0, 0, 0);
           obj.scale.set(1, 1, 1);
-          
           return true;
-        }}
+        } : undefined}
+
+        // Native line fallback for Low quality
         linkVisibility={true}
+        linkWidth={graphicsQuality === 'high' ? 0 : 1}
+        linkColor={() => '#4c1d95'}
         
         onNodeClick={handleNodeClick}
         onNodeRightClick={handleNodeRightClick}

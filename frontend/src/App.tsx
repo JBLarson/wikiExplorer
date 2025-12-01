@@ -13,6 +13,7 @@ import { StatsButton } from './components/StatsButton';
 import { FileMenu } from './components/FileMenu';
 import { FindNode } from './components/FindNode';
 import { Counter } from './components/Counter';
+import { QualityToggle } from './components/QualityToggle';
 import { useGraphStore } from './stores/graphStore';
 import { checkBackendHealth } from './lib/wikipedia';
 import { useArticleLoader } from './hooks/useArticleLoader';
@@ -147,22 +148,26 @@ function AppContent() {
             </div>
           </div>
 
-          <div className="flex-1 max-w-4xl px-8 pointer-events-auto flex items-center gap-3">
+          <div className="flex-1 max-w-6xl px-8 pointer-events-auto flex items-center gap-3">
             <RefreshButton 
               onRefreshApp={handleHardRefresh}
               onRefreshEdges={handleRefreshEdges}
             />
             <StatsButton onOpenStats={() => setShowStatsModal(true)} nodeCount={nodes.length} />
-            
-            <SearchBar onSearch={handleSearch} isLoading={isLoading} />
+            <QualityToggle />
+
+            <div className="flex-1 min-w-[300px]">
+              <SearchBar onSearch={handleSearch} isLoading={isLoading} />
+            </div>
+
             <FindNode onNodeSelect={handleFindNodeSelect} />
 
-            {/* New Unified File Menu */}
             <FileMenu 
               onGraphLoad={handleGraphLoad}
               disabled={nodes.length === 0}
             />
           </div>
+
 
           <div className="pointer-events-auto">
             <Counter />
