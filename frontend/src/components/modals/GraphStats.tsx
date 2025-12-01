@@ -1,5 +1,6 @@
-import { XMarkIcon } from '@heroicons/react/24/outline';
-import { useMemo } from 'react';
+// frontend/src/components/modals/GraphStats.tsx
+import { XMarkIcon, ChevronUpIcon, ChevronDownIcon } from '@heroicons/react/24/outline';
+import { useMemo, useState } from 'react';
 import type { GraphNode, GraphEdge } from '../../types';
 
 interface GraphStatsModalProps {
@@ -13,19 +14,24 @@ interface NodeWithStats extends GraphNode {
   edgeCount: number;
   incomingEdges: number;
   outgoingEdges: number;
-  neighborConnectivity: number; // Sum of edges held by this node's neighbors
+  neighborConnectivity: number;
 }
 
+// Keys we allow sorting by
+type SortKey = 'label' | 'depth' | 'edgeCount' | 'outgoingEdges' | 'incomingEdges' | 'neighborConnectivity' | 'expansionCount';
+
 export function GraphStatsModal({ nodes, edges, onClose, onNodeClick }: GraphStatsModalProps) {
+  // 1. Add state for sorting
+  const [sortConfig, setSortConfig] = useState<{ key: SortKey; direction: 'asc' | 'desc' }>({
+    key: 'edgeCount',
+    direction: 'desc', // Default to highest connectivity
+  });
+
   const nodesWithStats = useMemo(() => {
-    // 1. Create a map of NodeID -> Connected Edge Indices for O(1) lookup
-    // This prevents O(N*E) complexity which would slow down large graphs
+    // --- Existing stats calculation logic ---
     const nodeEdgeMap = new Map<string, GraphEdge[]>();
-    
-    // Initialize map
     nodes.forEach(node => nodeEdgeMap.set(node.id, []));
 
-    // Populate map
     edges.forEach(edge => {
       const sourceList = nodeEdgeMap.get(edge.source);
       const targetList = nodeEdgeMap.get(edge.target);
@@ -34,16 +40,11 @@ export function GraphStatsModal({ nodes, edges, onClose, onNodeClick }: GraphSta
     });
 
     const stats: NodeWithStats[] = nodes.map(node => {
-      // Get all edges directly connected to this node
       const myEdges = nodeEdgeMap.get(node.id) || [];
-      
       const outgoing = myEdges.filter(e => e.source === node.id).length;
       const incoming = myEdges.filter(e => e.target === node.id).length;
 
-      // Calculate Neighbor Connectivity (2nd Degree impact)
-      // We find all neighbors, then sum up THEIR total edge counts
       let neighborConnectivity = 0;
-      
       const neighborIds = new Set<string>();
       
       myEdges.forEach(edge => {
@@ -67,9 +68,24 @@ export function GraphStatsModal({ nodes, edges, onClose, onNodeClick }: GraphSta
       };
     });
 
-    // Sort by total edges (descending)
-    return stats.sort((a, b) => b.edgeCount - a.edgeCount);
-  }, [nodes, edges]);
+    // 2. Dynamic Sorting Logic
+    return stats.sort((a, b) => {
+      const aValue = a[sortConfig.key];
+      const bValue = b[sortConfig.key];
+
+      // Handle string comparison for 'label'
+      if (sortConfig.key === 'label') {
+        return sortConfig.direction === 'asc' 
+          ? String(aValue).localeCompare(String(bValue))
+          : String(bValue).localeCompare(String(aValue));
+      }
+
+      // Handle number comparison
+      if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
+      if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
+      return 0;
+    });
+  }, [nodes, edges, sortConfig]); // Re-run when sortConfig changes
 
   const totalEdges = edges.length;
   const avgEdgesPerNode = nodes.length > 0 ? (totalEdges * 2 / nodes.length).toFixed(1) : '0';
@@ -79,10 +95,43 @@ export function GraphStatsModal({ nodes, edges, onClose, onNodeClick }: GraphSta
     onClose();
   };
 
+  // 3. Helper to handle header clicks
+  const requestSort = (key: SortKey) => {
+    let direction: 'asc' | 'desc' = 'desc';
+    
+    // If clicking the same column, toggle direction
+    if (sortConfig.key === key && sortConfig.direction === 'desc') {
+      direction = 'asc';
+    } else if (sortConfig.key !== key && key === 'label') {
+      // Default to ascending for text
+      direction = 'asc';
+    }
+
+    setSortConfig({ key, direction });
+  };
+
+  // 4. Helper to render header with icon
+  const SortableHeader = ({ label, sortKey, align = 'left' }: { label: string, sortKey: SortKey, align?: string }) => (
+    <th 
+      className={`p-4 text-${align} text-xs font-semibold text-gray-400 uppercase tracking-wider cursor-pointer hover:text-white transition-colors group select-none`}
+      onClick={() => requestSort(sortKey)}
+    >
+      <div className={`flex items-center gap-1 ${align === 'center' ? 'justify-center' : ''}`}>
+        {label}
+        <span className="w-3 h-3 flex items-center">
+          {sortConfig.key === sortKey ? (
+            sortConfig.direction === 'asc' ? <ChevronUpIcon /> : <ChevronDownIcon />
+          ) : (
+            // Ghost icon that appears on hover
+            <ChevronDownIcon className="opacity-0 group-hover:opacity-30" />
+          )}
+        </span>
+      </div>
+    </th>
+  );
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-6 pointer-events-auto bg-black/60 backdrop-blur-sm">
-      
-      {/* Modal */}
       <div className="relative w-full max-w-6xl h-[90vh] bg-abyss-surface border border-abyss-border rounded-2xl shadow-2xl overflow-hidden animate-fade-in flex flex-col">
         
         {/* Header */}
@@ -104,32 +153,18 @@ export function GraphStatsModal({ nodes, edges, onClose, onNodeClick }: GraphSta
         {/* Table */}
         <div className="flex-1 overflow-auto custom-scrollbar">
           <table className="w-full">
-            <thead className="sticky top-0 bg-abyss border-b border-abyss-border">
+            <thead className="sticky top-0 bg-abyss border-b border-abyss-border z-10">
               <tr>
                 <th className="text-left p-4 text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                  Rank
+                  #
                 </th>
-                <th className="text-left p-4 text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                  Article
-                </th>
-                <th className="text-center p-4 text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                  Depth
-                </th>
-                <th className="text-center p-4 text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                  Total Edges
-                </th>
-                <th className="text-center p-4 text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                  Outgoing
-                </th>
-                <th className="text-center p-4 text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                  Incoming
-                </th>
-                <th className="text-center p-4 text-xs font-semibold text-gray-400 uppercase tracking-wider" title="Total edges connected to this node's neighbors">
-                  Neighbor Conn.
-                </th>
-                <th className="text-center p-4 text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                  Expansions
-                </th>
+                <SortableHeader label="Article" sortKey="label" align="left" />
+                <SortableHeader label="Depth" sortKey="depth" align="center" />
+                <SortableHeader label="Total Edges" sortKey="edgeCount" align="center" />
+                <SortableHeader label="Outgoing" sortKey="outgoingEdges" align="center" />
+                <SortableHeader label="Incoming" sortKey="incomingEdges" align="center" />
+                <SortableHeader label="Neighbor Conn." sortKey="neighborConnectivity" align="center" />
+                <SortableHeader label="Expansions" sortKey="expansionCount" align="center" />
               </tr>
             </thead>
             <tbody>
@@ -140,7 +175,7 @@ export function GraphStatsModal({ nodes, edges, onClose, onNodeClick }: GraphSta
                   className="border-b border-abyss-border hover:bg-abyss-hover transition-colors cursor-pointer group"
                 >
                   <td className="p-4 text-gray-400 font-mono text-sm">
-                    #{index + 1}
+                    {index + 1}
                   </td>
                   <td className="p-4">
                     <div className="flex items-center gap-3">
@@ -180,7 +215,7 @@ export function GraphStatsModal({ nodes, edges, onClose, onNodeClick }: GraphSta
 
         {/* Footer */}
         <div className="p-4 border-t border-abyss-border bg-abyss flex items-center justify-between text-xs text-gray-500">
-          <span>Click any row to focus on that node in the graph</span>
+          <span>Click column headers to sort • Click rows to focus node</span>
           <span>Press ESC to close</span>
         </div>
       </div>
@@ -188,15 +223,11 @@ export function GraphStatsModal({ nodes, edges, onClose, onNodeClick }: GraphSta
   );
 }
 
-
-
-
-
+// ... existing helper functions (getDepthColor, getDepthBadgeColor) ...
 function getDepthColor(depth: number): string {
   const hue = 280 - (Math.min(depth, 6) * 27);
   const saturation = 70 + (depth * 4);
   const lightness = 65 - (depth * 6);
-  
   return `shadow-[0_0_8px_hsl(${hue},${saturation}%,${lightness}%,0.6)]`;
 }
 
@@ -204,6 +235,5 @@ function getDepthBadgeColor(depth: number): string {
   const hue = 280 - (Math.min(depth, 6) * 27);
   const saturation = 70 + (depth * 4);
   const lightness = 65 - (depth * 6);
-  
   return `bg-[hsl(${hue},${saturation}%,${lightness}%,0.2)] text-[hsl(${hue},${saturation}%,${lightness + 15}%)] border border-[hsl(${hue},${saturation}%,${lightness}%,0.3)]`;
 }
