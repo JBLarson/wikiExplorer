@@ -55,10 +55,12 @@ export function useArticleLoader() {
         isPrivate
       );
 
+      /*
       console.log('🔍 Root node links for:', article.title);
       links.slice(0, 7).forEach(link => {
         console.log(`  - ${link.title}: score=${link.score}, distance=${calculateEdgeDistance(link.score)}`);
       });
+      */
 
       // Use first 7 links, cache the rest
       const linksToDisplay = links.slice(0, 7);
