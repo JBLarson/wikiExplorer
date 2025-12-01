@@ -1,4 +1,3 @@
-// frontend/src/components/GraphCanvas.tsx
 // @refresh reset
 import { useEffect, useRef, useCallback, useMemo, forwardRef, useImperativeHandle } from 'react';
 import ForceGraph3D, { ForceGraphMethods } from 'react-force-graph-3d';
@@ -49,9 +48,9 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
     focusNode: (nodeId: string) => {
       if (!fgRef.current) return;
       
-      // FIX: Cast to any to access graphData() which is missing from the TS definition
-      const currentGraph = (fgRef.current as any).graphData();
-      const targetNode = currentGraph.nodes.find((n: any) => n.id === nodeId);
+      // FIX: Use local graphData variable instead of querying the ref
+      // The library mutates this object with x/y/z coordinates
+      const targetNode = graphData.nodes.find((n: any) => n.id === nodeId);
       
       if (targetNode && typeof (targetNode as any).x === 'number') {
         const distance = 220;
@@ -65,7 +64,7 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
         );
       }
     }
-  }), []);
+  }), [graphData]); // <--- CRITICAL: Re-create this function when graphData changes
 
   // Handle Resize
   useEffect(() => {
