@@ -7,6 +7,7 @@ import { NodeOutline } from './components/NodeOutline';
 import { MobileMenu } from './components/MobileMenu';
 import { RefreshButton } from './components/RefreshButton';
 import { SearchBar } from './components/SearchBar';
+import { AboutModal } from './components/modals/AboutModal';
 import { GraphStatsModal } from './components/modals/GraphStats';
 import { WikiModal } from './components/modals/WikiModal';
 import { StatsButton } from './components/StatsButton';
@@ -40,6 +41,7 @@ function AppContent() {
   const [error, setError] = useState<string | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [showAboutModal, setShowAboutModal] = useState(false);
 
   // Ref to control graph camera
   const graphCanvasRef = useRef<GraphCanvasRef>(null);
@@ -166,6 +168,17 @@ function AppContent() {
               onGraphLoad={handleGraphLoad}
               disabled={nodes.length === 0}
             />
+
+            <button
+              onClick={() => setShowAboutModal(true)}
+              className="flex items-center gap-2 px-4 h-10 bg-abyss-surface/90 backdrop-blur-xl border border-abyss-border hover:border-brand-primary/50 rounded-xl shadow-glass transition-all duration-200 group"
+              title="About wikiExplorer"
+            >
+              <span className="text-sm font-medium text-gray-300 group-hover:text-white transition-colors">
+                About
+              </span>
+            </button>
+
           </div>
 
 
@@ -250,6 +263,11 @@ function AppContent() {
           onClose={() => setShowWikiModal(false)}
         />
       )}
+
+      {showAboutModal && (
+        <AboutModal onClose={() => setShowAboutModal(false)} />
+      )}
+
     </div>
   );
 }
