@@ -45,7 +45,6 @@ export function MobileInterface({
   const { nodes, exportGraphToJSON, rootNode } = useGraphStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Close sheets when clicking the graph (background)
   useEffect(() => {
     const handleBackgroundClick = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
@@ -92,17 +91,19 @@ export function MobileInterface({
     reader.readAsText(file);
   };
 
-  // Logic: Only show the main bottom controls if the menu is toggled ON AND no sheets are open
   const showMainControls = isMenuVisible && activeSheet === 'none';
-  
-  // Logic: Only show the "Show Menu" up-arrow if menu is toggled OFF AND no sheets are open
   const showMenuTrigger = !isMenuVisible && activeSheet === 'none';
 
   return (
     <div className="lg:hidden pointer-events-none absolute inset-0 z-40 flex flex-col justify-between overflow-hidden">
       
       {/* --- Top Status Bar --- */}
-      <div className="pointer-events-auto pt-4 px-4 flex items-start justify-between">
+      {/* FIX: Replaced 'pt-4 px-4' with dynamic safe-area paddings to prevent widget cutoff in landscape */}
+      <div className="pointer-events-auto flex items-start justify-between
+        pt-[max(1rem,env(safe-area-inset-top))] 
+        pl-[max(1rem,env(safe-area-inset-left))] 
+        pr-[max(1rem,env(safe-area-inset-right))]"
+      >
         <div className="flex flex-col gap-2">
           {/* Logo Pill */}
           <div className="flex items-center gap-2 px-3 py-1.5 bg-abyss-surface/80 backdrop-blur-md border border-abyss-border rounded-full shadow-lg">
@@ -115,11 +116,12 @@ export function MobileInterface({
         <Counter />
       </div>
 
-      {/* --- Show Menu Trigger (Chevron Up) --- */}
+      {/* --- Show Menu Trigger --- */}
       <div className={`
         pointer-events-auto absolute bottom-6 left-1/2 -translate-x-1/2 z-50
         transition-all duration-300 ease-out
         ${showMenuTrigger ? 'translate-y-0 opacity-100' : 'translate-y-20 opacity-0'}
+        pb-[env(safe-area-inset-bottom)] 
       `}>
         <button 
           onClick={() => setIsMenuVisible(true)}
@@ -129,11 +131,15 @@ export function MobileInterface({
         </button>
       </div>
 
-      {/* --- Bottom Controls Container (Search + Buttons) --- */}
+      {/* --- Bottom Controls Container --- */}
+      {/* FIX: Added dynamic safe-area paddings to left/right/bottom to prevent menu button cutoff */}
       <div className={`
-        pointer-events-auto pb-6 px-4 flex flex-col gap-3 relative z-50
+        pointer-events-auto flex flex-col gap-3 relative z-50
         transition-transform duration-300 ease-in-out
         ${showMainControls ? 'translate-y-0' : 'translate-y-[150%]'}
+        pb-[max(1.5rem,env(safe-area-inset-bottom))] 
+        pl-[max(1rem,env(safe-area-inset-left))] 
+        pr-[max(1rem,env(safe-area-inset-right))]
       `}>
         
         {/* Hide Menu Handle */}
@@ -181,10 +187,10 @@ export function MobileInterface({
           {/* Graph Stats */}
           <button 
             onClick={onOpenStats}
-            className="col-span-3 flex items-center justify-center gap-2 bg-brand-primary/10 backdrop-blur-xl border border-brand-primary/30 text-brand-glow rounded-xl font-medium text-sm"
+            className="col-span-3 flex items-center justify-center gap-2 bg-brand-primary/10 backdrop-blur-xl border border-brand-primary/30 text-brand-glow rounded-xl font-medium text-sm truncate"
           >
-            <ChartBarIcon className="w-5 h-5" />
-            <span>Graph Stats</span>
+            <ChartBarIcon className="w-5 h-5 flex-shrink-0" />
+            <span className="truncate">Graph Stats</span>
           </button>
 
           {/* Tools Toggle */}
@@ -204,16 +210,17 @@ export function MobileInterface({
         rounded-t-3xl shadow-2xl transition-transform duration-300 ease-out z-40
         flex flex-col
         ${activeSheet === 'outline' ? 'translate-y-0' : 'translate-y-full'}
+        pb-[env(safe-area-inset-bottom)]
       `} style={{ height: '60vh' }}>
         
-        <div className="flex items-center justify-between p-4 border-b border-abyss-border">
+        <div className="flex items-center justify-between p-4 border-b border-abyss-border pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]">
           <h3 className="font-bold text-white ml-2">Exploration Path</h3>
           <button onClick={() => setActiveSheet('none')} className="p-2 text-gray-400 hover:text-white">
             <XMarkIcon className="w-6 h-6" />
           </button>
         </div>
         
-        <div className="flex-1 overflow-hidden relative">
+        <div className="flex-1 overflow-hidden relative pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
           <NodeOutline 
             isOpen={true} 
             onToggle={() => {}} 
@@ -231,15 +238,16 @@ export function MobileInterface({
         bg-abyss-surface/95 backdrop-blur-2xl border-t border-abyss-border 
         rounded-t-3xl shadow-2xl transition-transform duration-300 ease-out z-40
         ${activeSheet === 'tools' ? 'translate-y-0' : 'translate-y-full'}
+        pb-[env(safe-area-inset-bottom)]
       `}>
-        <div className="flex items-center justify-between p-4 border-b border-abyss-border">
+        <div className="flex items-center justify-between p-4 border-b border-abyss-border pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))]">
           <h3 className="font-bold text-white ml-2">Graph Tools</h3>
           <button onClick={() => setActiveSheet('none')} className="p-2 text-gray-400 hover:text-white">
             <XMarkIcon className="w-6 h-6" />
           </button>
         </div>
 
-        <div className="p-6 grid grid-cols-2 gap-4">
+        <div className="p-6 grid grid-cols-2 gap-4 pl-[max(1.5rem,env(safe-area-inset-left))] pr-[max(1.5rem,env(safe-area-inset-right))]">
           <div className="col-span-2 flex justify-center mb-2">
             <QualityToggle />
           </div>
@@ -274,7 +282,7 @@ export function MobileInterface({
             className="hidden" 
           />
         </div>
-        <div className="h-8" /> {/* Safe area for swipe bar */}
+        <div className="h-8" /> 
       </div>
 
     </div>
