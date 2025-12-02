@@ -92,7 +92,7 @@ export function MobileInterface({
   };
 
   return (
-    <div className="md:hidden pointer-events-none absolute inset-0 z-40 flex flex-col justify-between overflow-hidden">
+    <div className="lg:hidden pointer-events-none absolute inset-0 z-40 flex flex-col justify-between overflow-hidden">
       
       {/* --- Top Status Bar --- */}
       <div className="pointer-events-auto pt-4 px-4 flex items-start justify-between">

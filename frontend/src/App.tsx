@@ -115,10 +115,11 @@ function AppContent() {
   }, [showStatsModal, showWikiModal, sidebarOpen]);
 
   return (
-    <div className="flex flex-col h-screen w-screen bg-abyss font-sans text-gray-100 overflow-hidden select-none">
+    // FIX 1: Use h-[100dvh] for mobile browsers and add 'relative'
+    <div className="flex flex-col h-[100dvh] w-screen bg-abyss font-sans text-gray-100 overflow-hidden select-none relative">
       
       {/* --- DESKTOP HEADER (Hidden on mobile) --- */}
-      <div className="hidden md:block absolute top-0 left-0 w-full z-50 pointer-events-none">
+      <div className="hidden lg:block absolute top-0 left-0 w-full z-50 pointer-events-none">
         <div className="flex items-center justify-between p-6 bg-gradient-to-b from-abyss via-abyss/80 to-transparent">
           
           <div className="flex items-center gap-4 pointer-events-auto">
@@ -173,18 +174,6 @@ function AppContent() {
         </div>
       </div>
 
-      {/* --- MOBILE INTERFACE (Hidden on Desktop) --- */}
-      <MobileInterface 
-        onSearch={handleSearch}
-        isLoading={isLoading}
-        backendOnline={backendOnline}
-        onOpenStats={() => setShowStatsModal(true)}
-        onRefreshApp={handleHardRefresh}
-        onRefreshEdges={handleRefreshEdges}
-        onGraphLoad={handleGraphLoad}
-        onNodeClick={handleStatsNodeClick}
-      />
-
       {/* --- ERROR TOAST --- */}
       {error && (
         <div className="absolute top-24 md:top-28 left-1/2 -translate-x-1/2 z-[60] animate-slide-up pointer-events-auto max-w-[90vw]">
@@ -226,6 +215,18 @@ function AppContent() {
           </div>
         )}
       </div>
+
+      {/* FIX 2: Move MobileInterface AFTER the Graph to ensure it sits on top in the DOM order */}
+      <MobileInterface 
+        onSearch={handleSearch}
+        isLoading={isLoading}
+        backendOnline={backendOnline}
+        onOpenStats={() => setShowStatsModal(true)}
+        onRefreshApp={handleHardRefresh}
+        onRefreshEdges={handleRefreshEdges}
+        onGraphLoad={handleGraphLoad}
+        onNodeClick={handleStatsNodeClick}
+      />
 
       {/* --- MODALS --- */}
       {showStatsModal && (

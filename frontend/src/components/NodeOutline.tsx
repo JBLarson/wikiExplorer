@@ -204,7 +204,7 @@ export function NodeOutline({ isOpen, onToggle, onNodeClick }: NodeOutlineProps)
       {/* Desktop Toggle Button */}
       <button
         onClick={onToggle}
-        className={`hidden md:block fixed top-1/2 -translate-y-1/2 z-50 p-2 bg-abyss-surface/90 backdrop-blur-xl border border-abyss-border rounded-r-xl shadow-glass transition-all duration-300 hover:bg-abyss-hover ${
+        className={`hidden lg:block fixed top-1/2 -translate-y-1/2 z-50 p-2 bg-abyss-surface/90 backdrop-blur-xl border border-abyss-border rounded-r-xl shadow-glass transition-all duration-300 hover:bg-abyss-hover ${
           isOpen ? 'left-[20%]' : 'left-0'
         }`}
       >
@@ -219,8 +219,8 @@ export function NodeOutline({ isOpen, onToggle, onNodeClick }: NodeOutlineProps)
       <div
         className={`
           flex flex-col h-full
-          md:fixed md:left-0 md:top-0 md:w-1/5 md:min-w-[280px] md:max-w-[400px] 
-          bg-transparent md:bg-abyss-surface/95 md:backdrop-blur-xl md:border-r md:border-abyss-border 
+          lg:fixed lg:left-0 lg:top-0 lg:w-1/5 lg:min-w-[280px] lg:max-w-[400px] 
+          bg-transparent lg:bg-abyss-surface/95 lg:backdrop-blur-xl lg:border-r lg:border-abyss-border 
           z-30 transition-transform duration-300
           ${/* Desktop-specific hiding logic */ ''}
           ${isOpen ? 'translate-x-0' : 'md:-translate-x-full'}
