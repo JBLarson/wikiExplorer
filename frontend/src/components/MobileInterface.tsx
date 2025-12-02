@@ -7,8 +7,8 @@ import {
   ArrowPathIcon,
   ArrowDownTrayIcon,
   ArrowUpTrayIcon,
-  ChevronUpIcon,   // Added
-  ChevronDownIcon  // Added
+  ChevronUpIcon,
+  ChevronDownIcon
 } from '@heroicons/react/24/outline';
 import { SearchBar } from './SearchBar';
 import { Counter } from './Counter';
@@ -40,8 +40,6 @@ export function MobileInterface({
 }: MobileInterfaceProps) {
   const [activeSheet, setActiveSheet] = useState<'none' | 'outline' | 'tools'>('none');
   const [isSearchExpanded, setIsSearchExpanded] = useState(false);
-  
-  // NEW: State to track if the bottom menu is visible
   const [isMenuVisible, setIsMenuVisible] = useState(true);
   
   const { nodes, exportGraphToJSON, rootNode } = useGraphStore();
@@ -54,20 +52,15 @@ export function MobileInterface({
       if (target.tagName === 'CANVAS') {
         setActiveSheet('none');
         setIsSearchExpanded(false);
-        // Optional: Hide menu on background click too? 
-        // For now let's keep it manual/on-search to avoid frustration.
       }
     };
     window.addEventListener('click', handleBackgroundClick);
     return () => window.removeEventListener('click', handleBackgroundClick);
   }, []);
 
-  // --- Handlers ---
-
   const handleSearchWrapper = (query: string, isPrivate: boolean) => {
     onSearch(query, isPrivate);
     setIsSearchExpanded(false);
-    // NEW: Auto-hide menu after search to maximize view
     setIsMenuVisible(false);
   };
 
@@ -99,6 +92,12 @@ export function MobileInterface({
     reader.readAsText(file);
   };
 
+  // Logic: Only show the main bottom controls if the menu is toggled ON AND no sheets are open
+  const showMainControls = isMenuVisible && activeSheet === 'none';
+  
+  // Logic: Only show the "Show Menu" up-arrow if menu is toggled OFF AND no sheets are open
+  const showMenuTrigger = !isMenuVisible && activeSheet === 'none';
+
   return (
     <div className="lg:hidden pointer-events-none absolute inset-0 z-40 flex flex-col justify-between overflow-hidden">
       
@@ -116,11 +115,11 @@ export function MobileInterface({
         <Counter />
       </div>
 
-      {/* --- Show Menu Trigger (Visible when menu is hidden) --- */}
+      {/* --- Show Menu Trigger (Chevron Up) --- */}
       <div className={`
         pointer-events-auto absolute bottom-6 left-1/2 -translate-x-1/2 z-50
         transition-all duration-300 ease-out
-        ${isMenuVisible ? 'translate-y-20 opacity-0' : 'translate-y-0 opacity-100'}
+        ${showMenuTrigger ? 'translate-y-0 opacity-100' : 'translate-y-20 opacity-0'}
       `}>
         <button 
           onClick={() => setIsMenuVisible(true)}
@@ -130,14 +129,14 @@ export function MobileInterface({
         </button>
       </div>
 
-      {/* --- Bottom Controls Container --- */}
+      {/* --- Bottom Controls Container (Search + Buttons) --- */}
       <div className={`
         pointer-events-auto pb-6 px-4 flex flex-col gap-3 relative z-50
         transition-transform duration-300 ease-in-out
-        ${isMenuVisible ? 'translate-y-0' : 'translate-y-[120%]'}
+        ${showMainControls ? 'translate-y-0' : 'translate-y-[150%]'}
       `}>
         
-        {/* Hide Menu Handle (Optional visual cue to push it down) */}
+        {/* Hide Menu Handle */}
         <div className="flex justify-center -mb-2">
           <button 
             onClick={() => setIsMenuVisible(false)}
@@ -147,7 +146,7 @@ export function MobileInterface({
           </button>
         </div>
 
-        {/* Search Bar - Expands on interaction */}
+        {/* Search Bar */}
         <div className={`
           transition-all duration-300 ease-out 
           ${isSearchExpanded ? 'transform -translate-y-2' : ''}
@@ -221,8 +220,6 @@ export function MobileInterface({
             onNodeClick={(id) => {
               onNodeClick(id);
               setActiveSheet('none');
-              // Optional: Hide menu when selecting a node to clear view?
-              // setIsMenuVisible(false); 
             }} 
           />
         </div>
