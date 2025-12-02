@@ -1,13 +1,14 @@
 import { useState, useRef, useEffect } from 'react';
 import { 
-  MagnifyingGlassIcon, 
   ListBulletIcon, 
   Cog6ToothIcon, 
   XMarkIcon,
   ChartBarIcon,
   ArrowPathIcon,
   ArrowDownTrayIcon,
-  ArrowUpTrayIcon
+  ArrowUpTrayIcon,
+  ChevronUpIcon,   // Added
+  ChevronDownIcon  // Added
 } from '@heroicons/react/24/outline';
 import { SearchBar } from './SearchBar';
 import { Counter } from './Counter';
@@ -40,6 +41,9 @@ export function MobileInterface({
   const [activeSheet, setActiveSheet] = useState<'none' | 'outline' | 'tools'>('none');
   const [isSearchExpanded, setIsSearchExpanded] = useState(false);
   
+  // NEW: State to track if the bottom menu is visible
+  const [isMenuVisible, setIsMenuVisible] = useState(true);
+  
   const { nodes, exportGraphToJSON, rootNode } = useGraphStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -50,6 +54,8 @@ export function MobileInterface({
       if (target.tagName === 'CANVAS') {
         setActiveSheet('none');
         setIsSearchExpanded(false);
+        // Optional: Hide menu on background click too? 
+        // For now let's keep it manual/on-search to avoid frustration.
       }
     };
     window.addEventListener('click', handleBackgroundClick);
@@ -57,6 +63,13 @@ export function MobileInterface({
   }, []);
 
   // --- Handlers ---
+
+  const handleSearchWrapper = (query: string, isPrivate: boolean) => {
+    onSearch(query, isPrivate);
+    setIsSearchExpanded(false);
+    // NEW: Auto-hide menu after search to maximize view
+    setIsMenuVisible(false);
+  };
 
   const handleSave = () => {
     const rootNodeData = nodes.find(n => n.id === rootNode);
@@ -70,11 +83,6 @@ export function MobileInterface({
   };
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
-    // Re-implementing load logic locally to keep prop drilling minimal, 
-    // or you can pass the handler from App.tsx. 
-    // For brevity, assuming the parent passed `onGraphLoad` triggers logic, 
-    // but actual file reading usually happens in the component. 
-    // This connects to the hidden input.
     const file = event.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
@@ -108,9 +116,37 @@ export function MobileInterface({
         <Counter />
       </div>
 
+      {/* --- Show Menu Trigger (Visible when menu is hidden) --- */}
+      <div className={`
+        pointer-events-auto absolute bottom-6 left-1/2 -translate-x-1/2 z-50
+        transition-all duration-300 ease-out
+        ${isMenuVisible ? 'translate-y-20 opacity-0' : 'translate-y-0 opacity-100'}
+      `}>
+        <button 
+          onClick={() => setIsMenuVisible(true)}
+          className="flex items-center justify-center w-12 h-12 bg-abyss-surface/80 backdrop-blur-xl border border-abyss-border rounded-full shadow-glass hover:bg-abyss-hover active:scale-95 transition-all text-brand-glow animate-pulse-slow"
+        >
+          <ChevronUpIcon className="w-6 h-6" />
+        </button>
+      </div>
+
       {/* --- Bottom Controls Container --- */}
-      <div className="pointer-events-auto pb-6 px-4 flex flex-col gap-3 relative z-50">
+      <div className={`
+        pointer-events-auto pb-6 px-4 flex flex-col gap-3 relative z-50
+        transition-transform duration-300 ease-in-out
+        ${isMenuVisible ? 'translate-y-0' : 'translate-y-[120%]'}
+      `}>
         
+        {/* Hide Menu Handle (Optional visual cue to push it down) */}
+        <div className="flex justify-center -mb-2">
+          <button 
+            onClick={() => setIsMenuVisible(false)}
+            className="p-1 text-gray-500 hover:text-white bg-abyss/50 rounded-full backdrop-blur-sm"
+          >
+            <ChevronDownIcon className="w-4 h-4" />
+          </button>
+        </div>
+
         {/* Search Bar - Expands on interaction */}
         <div className={`
           transition-all duration-300 ease-out 
@@ -121,10 +157,7 @@ export function MobileInterface({
             className={`${isSearchExpanded ? 'shadow-2xl' : 'shadow-lg'}`}
           >
             <SearchBar 
-              onSearch={(q, p) => {
-                onSearch(q, p);
-                setIsSearchExpanded(false);
-              }} 
+              onSearch={handleSearchWrapper} 
               isLoading={isLoading} 
               placeholder="Search topic..."
             />
@@ -146,7 +179,7 @@ export function MobileInterface({
             <ListBulletIcon className="w-6 h-6" />
           </button>
 
-          {/* Spacer for Search Bar visual alignment if needed, or Quick Stats */}
+          {/* Graph Stats */}
           <button 
             onClick={onOpenStats}
             className="col-span-3 flex items-center justify-center gap-2 bg-brand-primary/10 backdrop-blur-xl border border-brand-primary/30 text-brand-glow rounded-xl font-medium text-sm"
@@ -188,6 +221,8 @@ export function MobileInterface({
             onNodeClick={(id) => {
               onNodeClick(id);
               setActiveSheet('none');
+              // Optional: Hide menu when selecting a node to clear view?
+              // setIsMenuVisible(false); 
             }} 
           />
         </div>
