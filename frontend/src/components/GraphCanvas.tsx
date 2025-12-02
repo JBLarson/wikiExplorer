@@ -1,5 +1,5 @@
 // @refresh reset
-import { useEffect, useRef, useCallback, useMemo, forwardRef, useImperativeHandle } from 'react';
+import { useEffect, useRef, useCallback, useMemo, forwardRef, useImperativeHandle, useState } from 'react';
 import ForceGraph3D, { ForceGraphMethods } from 'react-force-graph-3d';
 import { useGraphStore } from '../stores/graphStore';
 import * as THREE from 'three';
@@ -20,6 +20,13 @@ export interface GraphCanvasRef {
 export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNodeClick, onNodeRightClick, isSidebarOpen }, ref) => {
   const fgRef = useRef<ForceGraphMethods>();
   const containerRef = useRef<HTMLDivElement>(null);
+  const isInitializedRef = useRef(false); 
+  
+  // Initialize with window size so it renders immediately (prevents blank screen)
+  const [dimensions, setDimensions] = useState({ 
+    width: window.innerWidth, 
+    height: window.innerHeight 
+  });
   
   const sharedTimeUniform = useRef({ value: 0 });
   const animationFrameRef = useRef<number>();
@@ -47,16 +54,11 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
   useImperativeHandle(ref, () => ({
     focusNode: (nodeId: string) => {
       if (!fgRef.current) return;
-      
-      // FIX: Use local graphData variable instead of querying the ref
-      // The library mutates this object with x/y/z coordinates
       const targetNode = graphData.nodes.find((n: any) => n.id === nodeId);
-      
       if (targetNode && typeof (targetNode as any).x === 'number') {
         const distance = 220;
         const node = targetNode as any;
         const distRatio = 1 + distance / Math.hypot(node.x, node.y, node.z);
-        
         fgRef.current.cameraPosition(
           { x: node.x * distRatio, y: node.y * distRatio, z: node.z * distRatio },
           node, 
@@ -64,76 +66,64 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
         );
       }
     }
-  }), [graphData]); // <--- CRITICAL: Re-create this function when graphData changes
+  }), [graphData]);
 
-  // Handle Resize
+  // 1. ROBUST RESIZE HANDLING (State-based)
   useEffect(() => {
-    if (!containerRef.current || !fgRef.current) return;
-    const handleResize = () => {
-      if (containerRef.current && fgRef.current) {
+    if (!containerRef.current) return;
+
+    const updateDimensions = () => {
+      if (containerRef.current) {
         const { width, height } = containerRef.current.getBoundingClientRect();
-        const methods = fgRef.current as any;
-        if (methods.width && methods.height) {
-          methods.width(width);
-          methods.height(height);
+        if (width > 0 && height > 0) {
+          // Setting state triggers a re-render, passing new width/height props to ForceGraph
+          setDimensions({ width, height });
         }
       }
     };
-    handleResize();
-    const resizeObserver = new ResizeObserver(handleResize);
+
+    const resizeObserver = new ResizeObserver(() => {
+      requestAnimationFrame(updateDimensions);
+    });
+    
     resizeObserver.observe(containerRef.current);
-    return () => resizeObserver.disconnect();
+    window.addEventListener('resize', updateDimensions);
+    
+    // Handle mobile orientation lag
+    window.addEventListener('orientationchange', () => setTimeout(updateDimensions, 200));
+
+    // Force initial measure
+    updateDimensions();
+
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener('resize', updateDimensions);
+      window.removeEventListener('orientationchange', updateDimensions);
+    };
   }, []);
 
-  // Sidebar resize trigger
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (containerRef.current && fgRef.current) {
-        const { width, height } = containerRef.current.getBoundingClientRect();
-        const methods = fgRef.current as any;
-        if (methods.width && methods.height) {
-          methods.width(width);
-          methods.height(height);
-        }
-      }
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [isSidebarOpen]);
-
-  // Physics Forces
+  // 2. SCENE SETUP (Runs ONCE on mount)
   useEffect(() => {
     if (!fgRef.current) return;
-    const linkForce = fgRef.current.d3Force('link');
-    if (linkForce) {
-      linkForce
-        .distance((link: any) => link.distance || 150)
-        .strength(1.0);
-    }
-    fgRef.current.d3Force('charge')?.strength(-400);
-    fgRef.current.d3Force('center')?.strength(0.2);
-  }, []);
+    
+    // Prevent duplicate initialization
+    if (isInitializedRef.current) return;
+    isInitializedRef.current = true;
 
-  // Reheat simulation
-  useEffect(() => {
-    if (fgRef.current && nodes.length > 0) {
-      fgRef.current.d3ReheatSimulation();
-    }
-  }, [nodes.length]);
-
-  // Background & Animation Loop
-  useEffect(() => {
-    if (!fgRef.current) return;
     const scene = fgRef.current.scene();
     
+    // Setup Atmosphere
     const { background, material: bgMaterial } = createAtmosphericBackground();
     scene.add(background);
-    
     setupLighting(scene);
     setupFog(scene);
 
+    // Animation Loop
     const animate = () => {
       sharedTimeUniform.current.value += 0.012;
-      bgMaterial.uniforms.time.value = sharedTimeUniform.current.value;
+      if (bgMaterial && bgMaterial.uniforms) {
+        bgMaterial.uniforms.time.value = sharedTimeUniform.current.value;
+      }
       animationFrameRef.current = requestAnimationFrame(animate);
     };
     animate();
@@ -142,11 +132,33 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
       }
+      // Cleanup
       scene.remove(background);
       background.geometry.dispose();
       bgMaterial.dispose();
+      isInitializedRef.current = false;
     };
-  }, []);
+  }, []); 
+
+  // 3. PHYSICS & DATA UPDATES
+  useEffect(() => {
+    if (!fgRef.current) return;
+
+    // Configure Forces
+    const linkForce = fgRef.current.d3Force('link');
+    if (linkForce) {
+      linkForce
+        .distance((link: any) => link.distance || 150)
+        .strength(1.0);
+    }
+    fgRef.current.d3Force('charge')?.strength(-400); 
+    fgRef.current.d3Force('center')?.strength(0.2);
+    
+    // Only reheat if we have data (prevents initial explosion)
+    if (nodes.length > 0) {
+      fgRef.current.d3ReheatSimulation();
+    }
+  }, [nodes.length, edges.length]); 
 
   const handleNodeClick = useCallback((node: any) => {
     const distance = 220;
@@ -167,9 +179,11 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
   }, [onNodeRightClick]);
 
   return (
-    <div ref={containerRef} className="w-full h-full bg-abyss cursor-move">
+    <div ref={containerRef} className="w-full h-full bg-abyss cursor-move overflow-hidden">
       <ForceGraph3D
         ref={fgRef}
+        width={dimensions.width}
+        height={dimensions.height}
         graphData={graphData}
         backgroundColor="#02020B"
         showNavInfo={false}
@@ -185,7 +199,6 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
         nodeResolution={graphicsQuality === 'high' ? 24 : 8}
         nodeOpacity={1}
         
-        // Pass graphicsQuality to renderer
         nodeThreeObject={(node: any) => {
           return createNodeObject({
             id: node.id,
@@ -198,7 +211,6 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
           }, graphicsQuality);
         }}
 
-        // Conditionally render expensive Mist effect
         linkThreeObject={graphicsQuality === 'high' ? () => {
           return createMistConnection(sharedTimeUniform.current);
         } : undefined}
@@ -215,7 +227,6 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
           return true;
         } : undefined}
 
-        // Native line fallback for Low quality
         linkVisibility={true}
         linkWidth={graphicsQuality === 'high' ? 0 : 1}
         linkColor={() => '#4c1d95'}
