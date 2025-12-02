@@ -17,7 +17,8 @@ export function SearchBar({ onSearch, placeholder = 'Explore Wikipedia', isLoadi
   
   useEffect(() => {
     const handleKeyPress = (e: KeyboardEvent) => {
-      if (e.key === '/' && document.activeElement?.tagName !== 'INPUT') {
+      // Only capture slash if not already typing
+      if (e.key === '/' && document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'TEXTAREA') {
         e.preventDefault();
         inputRef.current?.focus();
       }
@@ -36,18 +37,18 @@ export function SearchBar({ onSearch, placeholder = 'Explore Wikipedia', isLoadi
   };
   
   return (
-    <form onSubmit={handleSubmit} className="relative w-full group z-50 max-w-4xl mx-auto flex items-center gap-3">
+    <form onSubmit={handleSubmit} className="relative w-full group z-50 flex items-center gap-2 md:gap-3">
       <div className={`
         relative flex items-center flex-1
         bg-abyss-surface/90 backdrop-blur-xl
-        border transition-all duration-300 ease-out rounded-2xl
+        border transition-all duration-300 ease-out rounded-xl md:rounded-2xl
         ${isFocused 
           ? 'border-brand-primary/50 shadow-glow ring-1 ring-brand-primary/20' 
           : 'border-abyss-border shadow-glass'
         }
       `}>
         {/* Icon */}
-        <div className="pl-4 text-gray-500">
+        <div className="pl-3 md:pl-4 text-gray-500">
           {isLoading ? (
             <div className="w-5 h-5 rounded-full border-2 border-brand-primary border-t-transparent animate-spin" />
           ) : (
@@ -66,53 +67,43 @@ export function SearchBar({ onSearch, placeholder = 'Explore Wikipedia', isLoadi
           placeholder={placeholder}
           disabled={isLoading}
           className="
-            w-full h-14 pl-3 pr-12
+            w-full h-12 md:h-14 pl-2 md:pl-3 pr-10
             bg-transparent border-none outline-none
-            text-gray-100 placeholder-gray-600
-            text-base font-medium
+            text-gray-100 placeholder-gray-500
+            text-sm md:text-base font-medium
           "
         />
 
-        {/* Right Actions */}
-        <div className="absolute right-4 flex items-center gap-2">
-          {query && !isLoading && (
-            <button
-              type="button"
-              onClick={() => { setQuery(''); inputRef.current?.focus(); }}
-              className="text-gray-500 hover:text-gray-300 transition-colors"
-            >
-              <XMarkIcon className="w-5 h-5" />
-            </button>
-          )}
-          
-          <div className={`
-            hidden md:flex items-center justify-center h-6 px-2
-            bg-abyss-border rounded border border-abyss-highlight
-            text-xs text-gray-500 font-mono transition-opacity duration-200
-            ${isFocused ? 'opacity-0' : 'opacity-100'}
-          `}>
-            /
-          </div>
-        </div>
+        {/* Clear Button */}
+        {query && !isLoading && (
+          <button
+            type="button"
+            onClick={() => { setQuery(''); inputRef.current?.focus(); }}
+            className="absolute right-3 text-gray-500 hover:text-gray-300 transition-colors p-1"
+          >
+            <XMarkIcon className="w-4 h-4" />
+          </button>
+        )}
       </div>
 
-      {/* Private Search Checkbox - Inline */}
+      {/* Private Search Checkbox */}
       <button
         type="button"
         onClick={() => setIsPrivate(!isPrivate)}
         className={`
-          flex items-center justify-center gap-2 h-14 px-4
+          flex items-center justify-center gap-2 h-12 md:h-14 w-12 md:w-auto md:px-4
           bg-abyss-surface/90 backdrop-blur-xl
-          border rounded-2xl transition-all duration-300
+          border rounded-xl md:rounded-2xl transition-all duration-300
           hover:bg-abyss-hover shadow-glass
           ${isPrivate 
-            ? 'border-brand-primary/50 shadow-glow ring-1 ring-brand-primary/20' 
-            : 'border-abyss-border'
+            ? 'border-brand-primary/50 shadow-glow text-brand-glow' 
+            : 'border-abyss-border text-gray-500'
           }
         `}
+        title="Toggle Private Search"
       >
-        <LockClosedIcon className={`w-5 h-5 transition-colors ${isPrivate ? 'text-brand-glow' : 'text-gray-500'}`} />
-        <span className={`hidden lg:block text-sm font-medium transition-colors ${isPrivate ? 'text-brand-glow' : 'text-gray-400'}`}>
+        <LockClosedIcon className="w-5 h-5" />
+        <span className="hidden md:block text-sm font-medium">
           Private
         </span>
       </button>

@@ -201,7 +201,7 @@ export function NodeOutline({ isOpen, onToggle, onNodeClick }: NodeOutlineProps)
 
   return (
     <>
-      {/* Toggle Button */}
+      {/* Desktop Toggle Button */}
       <button
         onClick={onToggle}
         className={`hidden md:block fixed top-1/2 -translate-y-1/2 z-50 p-2 bg-abyss-surface/90 backdrop-blur-xl border border-abyss-border rounded-r-xl shadow-glass transition-all duration-300 hover:bg-abyss-hover ${
@@ -215,41 +215,39 @@ export function NodeOutline({ isOpen, onToggle, onNodeClick }: NodeOutlineProps)
         )}
       </button>
 
-      {/* Sidebar */}
+      {/* Responsive Container */}
       <div
-        className={`hidden md:block fixed left-0 top-0 h-full w-1/5 min-w-[280px] max-w-[400px] bg-abyss-surface/95 backdrop-blur-xl border-r border-abyss-border z-30 transition-transform duration-300 ${
-          isOpen ? 'translate-x-0' : '-translate-x-full'
-        }`}
+        className={`
+          flex flex-col h-full
+          md:fixed md:left-0 md:top-0 md:w-1/5 md:min-w-[280px] md:max-w-[400px] 
+          bg-transparent md:bg-abyss-surface/95 md:backdrop-blur-xl md:border-r md:border-abyss-border 
+          z-30 transition-transform duration-300
+          ${/* Desktop-specific hiding logic */ ''}
+          ${isOpen ? 'translate-x-0' : 'md:-translate-x-full'}
+        `}
       >
-        <div className="flex flex-col h-full pt-[88px]">
-          {/* Header */}
-          <div className="p-4 border-b border-abyss-border flex-shrink-0">
+        <div className="flex flex-col h-full md:pt-[88px]">
+          {/* Header - Only show on Desktop, mobile has its own header in MobileInterface */}
+          <div className="hidden md:block p-4 border-b border-abyss-border flex-shrink-0">
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-lg font-bold text-white">Exploration Path</h2>
-              
               {/* Expand/Collapse All */}
               {nodes.length > 1 && (
                 <div className="flex items-center gap-1">
-                  <button
-                    onClick={expandAll}
-                    className="p-1 text-gray-500 hover:text-white transition-colors rounded"
-                    title="Expand all"
-                  >
+                  <button onClick={expandAll} className="p-1 text-gray-500 hover:text-white transition-colors rounded" title="Expand all">
                     <ChevronDownIcon className="w-4 h-4" />
                   </button>
-                  <button
-                    onClick={collapseAll}
-                    className="p-1 text-gray-500 hover:text-white transition-colors rounded"
-                    title="Collapse all"
-                  >
+                  <button onClick={collapseAll} className="p-1 text-gray-500 hover:text-white transition-colors rounded" title="Collapse all">
                     <ChevronUpIcon className="w-4 h-4" />
                   </button>
                 </div>
               )}
             </div>
-            
-            {/* Search Filter */}
-            <div className="relative">
+          </div>
+
+          {/* Search Filter - Visible on both */}
+          <div className="p-4 border-b border-abyss-border flex-shrink-0">
+             <div className="relative">
               <MagnifyingGlassIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
               <input
                 type="text"
@@ -275,17 +273,17 @@ export function NodeOutline({ isOpen, onToggle, onNodeClick }: NodeOutlineProps)
           {/* Footer Stats */}
           <div className="p-4 border-t border-abyss-border flex-shrink-0">
             <div className="grid grid-cols-3 gap-2 text-xs">
-              <div className="bg-abyss rounded-lg p-2">
+              <div className="bg-abyss/50 md:bg-abyss rounded-lg p-2 border border-abyss-border/50 md:border-none">
                 <div className="text-gray-500">Nodes</div>
                 <div className="text-white font-bold text-lg">{nodes.length}</div>
               </div>
-              <div className="bg-abyss rounded-lg p-2">
+              <div className="bg-abyss/50 md:bg-abyss rounded-lg p-2 border border-abyss-border/50 md:border-none">
                 <div className="text-gray-500">Depth</div>
                 <div className="text-white font-bold text-lg">
                   {nodes.length > 0 ? Math.max(...nodes.map(n => n.depth)) : 0}
                 </div>
               </div>
-              <div className="bg-abyss rounded-lg p-2">
+              <div className="bg-abyss/50 md:bg-abyss rounded-lg p-2 border border-abyss-border/50 md:border-none">
                 <div className="text-gray-500">Expanded</div>
                 <div className="text-white font-bold text-lg">
                   {nodes.filter(n => n.expansionCount > 0).length}
@@ -298,6 +296,7 @@ export function NodeOutline({ isOpen, onToggle, onNodeClick }: NodeOutlineProps)
     </>
   );
 }
+
 
 function getDepthColor(depth: number): string {
   const colors = [

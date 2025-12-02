@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { XMarkIcon } from '@heroicons/react/24/outline';
 import { GraphCanvas, GraphCanvasRef } from './components/GraphCanvas';
 import { NodeOutline } from './components/NodeOutline';
-import { MobileMenu } from './components/MobileMenu';
+import { MobileInterface } from './components/MobileInterface'; // NEW
 import { RefreshButton } from './components/RefreshButton';
 import { SearchBar } from './components/SearchBar';
 import { AboutModal } from './components/modals/AboutModal';
@@ -39,7 +39,6 @@ function AppContent() {
   const [wikiModalData, setWikiModalData] = useState({ url: '', title: '' });
   const [backendOnline, setBackendOnline] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showAboutModal, setShowAboutModal] = useState(false);
 
@@ -63,7 +62,6 @@ function AppContent() {
     linkCache.clear();
     setError(null);
     setShowWikiModal(false);
-    setMobileMenuOpen(false);
   }, []);
 
   const handleNodeClick = useCallback((nodeId: string) => {
@@ -77,13 +75,10 @@ function AppContent() {
     }
   }, [nodes, loadArticle, expandNode, setSelectedNode]);
 
-
-  // Handler for FindNode component
   const handleFindNodeSelect = useCallback((nodeId: string) => {
     setSelectedNode(nodeId);
     graphCanvasRef.current?.focusNode(nodeId);
   }, [setSelectedNode]);
-
 
   const handleNodeRightClick = useCallback((nodeId: string) => {
     const node = nodes.find(n => n.id === nodeId);
@@ -104,33 +99,25 @@ function AppContent() {
     linkCache.clear();
     setError(null);
     setShowWikiModal(false);
-    setMobileMenuOpen(false);
     loadArticle(query, 0, setError, isPrivate);
   }, [clearGraph, loadArticle]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        if (showStatsModal) {
-          setShowStatsModal(false);
-        } else if (showWikiModal) {
-          setShowWikiModal(false);
-        } else if (mobileMenuOpen) {
-          setMobileMenuOpen(false);
-        } else if (sidebarOpen) {
-          setSidebarOpen(false);
-        }
+        if (showStatsModal) setShowStatsModal(false);
+        else if (showWikiModal) setShowWikiModal(false);
+        else if (sidebarOpen) setSidebarOpen(false);
       }
     };
-    
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [showStatsModal, showWikiModal, mobileMenuOpen, sidebarOpen]);
+  }, [showStatsModal, showWikiModal, sidebarOpen]);
 
   return (
-    <div className="flex flex-col h-screen w-screen bg-abyss font-sans text-gray-100 overflow-hidden">
+    <div className="flex flex-col h-screen w-screen bg-abyss font-sans text-gray-100 overflow-hidden select-none">
       
-      {/* Desktop Header */}
+      {/* --- DESKTOP HEADER (Hidden on mobile) --- */}
       <div className="hidden md:block absolute top-0 left-0 w-full z-50 pointer-events-none">
         <div className="flex items-center justify-between p-6 bg-gradient-to-b from-abyss via-abyss/80 to-transparent">
           
@@ -178,9 +165,7 @@ function AppContent() {
                 About
               </span>
             </button>
-
           </div>
-
 
           <div className="pointer-events-auto">
             <Counter />
@@ -188,24 +173,21 @@ function AppContent() {
         </div>
       </div>
 
-      {/* Mobile Header */}
-      <MobileMenu
-        isOpen={mobileMenuOpen}
-        onToggle={() => setMobileMenuOpen(!mobileMenuOpen)}
-        backendOnline={backendOnline}
-        nodeCount={nodes.length}
+      {/* --- MOBILE INTERFACE (Hidden on Desktop) --- */}
+      <MobileInterface 
         onSearch={handleSearch}
         isLoading={isLoading}
+        backendOnline={backendOnline}
         onOpenStats={() => setShowStatsModal(true)}
         onRefreshApp={handleHardRefresh}
         onRefreshEdges={handleRefreshEdges}
         onGraphLoad={handleGraphLoad}
-        nodesExist={nodes.length > 0}
+        onNodeClick={handleStatsNodeClick}
       />
 
-      {/* Error Toast */}
+      {/* --- ERROR TOAST --- */}
       {error && (
-        <div className="absolute top-28 left-1/2 -translate-x-1/2 z-50 animate-slide-up pointer-events-auto max-w-[90vw]">
+        <div className="absolute top-24 md:top-28 left-1/2 -translate-x-1/2 z-[60] animate-slide-up pointer-events-auto max-w-[90vw]">
           <div className="flex items-center gap-3 px-4 py-3 bg-red-950/90 backdrop-blur border border-red-500/30 rounded-xl shadow-2xl">
             <span className="text-sm font-medium text-red-200">{error}</span>
             <button onClick={() => setError(null)} className="text-red-400 hover:text-white transition-colors">
@@ -215,9 +197,9 @@ function AppContent() {
         </div>
       )}
 
-      {/* Main Content Area */}
+      {/* --- MAIN GRAPH --- */}
       <div className="flex-1 relative overflow-hidden">
-        {/* Node Outline Sidebar */}
+        {/* Node Outline (Desktop Sidebar) */}
         <NodeOutline 
           isOpen={sidebarOpen}
           onToggle={() => setSidebarOpen(!sidebarOpen)}
@@ -245,7 +227,7 @@ function AppContent() {
         )}
       </div>
 
-      {/* Modals */}
+      {/* --- MODALS --- */}
       {showStatsModal && (
         <GraphStatsModal
           nodes={nodes}
