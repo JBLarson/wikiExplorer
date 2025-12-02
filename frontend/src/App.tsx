@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { XMarkIcon } from '@heroicons/react/24/outline';
 import { GraphCanvas, GraphCanvasRef } from './components/GraphCanvas';
 import { NodeOutline } from './components/NodeOutline';
-import { MobileInterface } from './components/MobileInterface'; // NEW
+import { MobileInterface } from './components/MobileInterface';
 import { RefreshButton } from './components/RefreshButton';
 import { SearchBar } from './components/SearchBar';
 import { AboutModal } from './components/modals/AboutModal';
@@ -115,10 +115,10 @@ function AppContent() {
   }, [showStatsModal, showWikiModal, sidebarOpen]);
 
   return (
-    // FIX 1: Use h-[100dvh] for mobile browsers and add 'relative'
-    <div className="flex flex-col h-[100dvh] w-screen bg-abyss font-sans text-gray-100 overflow-hidden select-none relative">
+    // Root container: Locks viewport size and prevents scrolling
+    <div className="fixed inset-0 w-full h-full bg-abyss font-sans text-gray-100 overflow-hidden select-none touch-none">
       
-      {/* --- DESKTOP HEADER (Hidden on mobile) --- */}
+      {/* --- DESKTOP HEADER --- */}
       <div className="hidden lg:block absolute top-0 left-0 w-full z-50 pointer-events-none">
         <div className="flex items-center justify-between p-6 bg-gradient-to-b from-abyss via-abyss/80 to-transparent">
           
@@ -186,14 +186,20 @@ function AppContent() {
         </div>
       )}
 
-      {/* --- MAIN GRAPH --- */}
-      <div className="flex-1 relative overflow-hidden">
-        {/* Node Outline (Desktop Sidebar) */}
-        <NodeOutline 
-          isOpen={sidebarOpen}
-          onToggle={() => setSidebarOpen(!sidebarOpen)}
-          onNodeClick={handleStatsNodeClick}
-        />
+      {/* --- MAIN GRAPH CONTAINER --- */}
+      <div className="absolute inset-0 z-0 overflow-hidden">
+        
+        {/* FIX: Hide Desktop Sidebar on Mobile 
+            The NodeOutline component takes up 100% height in flow, pushing the graph off-screen on mobile. 
+            We MUST hide this instance on mobile screens. 
+        */}
+        <div className="hidden lg:block">
+          <NodeOutline 
+            isOpen={sidebarOpen}
+            onToggle={() => setSidebarOpen(!sidebarOpen)}
+            onNodeClick={handleStatsNodeClick}
+          />
+        </div>
 
         <GraphCanvas
           ref={graphCanvasRef}
@@ -202,21 +208,22 @@ function AppContent() {
           isSidebarOpen={showWikiModal || sidebarOpen}
         />
         
-        {/* Empty State */}
+        {/* Empty State Overlay */}
         {nodes.length === 0 && !isLoading && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none px-4">
+          <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none px-4 z-10">
             <div className="text-center space-y-4">
               <div className="inline-flex items-center justify-center w-16 h-16 md:w-20 md:h-20 rounded-3xl bg-abyss-surface border border-abyss-highlight shadow-2xl mb-4">
-                <img src={weLogo} alt="" className="w-8 h-8 md:w-10 md:h-10 opacity-50 grayscale" />
+                <img src={weLogo} alt="" className="w-8 h-8 md:w-10 md:h-10 opacity-80 grayscale" />
               </div>
-              <h2 className="text-xl md:text-2xl font-bold text-gray-700">Ready to Explore</h2>
-              <p className="text-sm md:text-base text-gray-600">Search a topic to generate the graph</p>
+              <h2 className="text-xl md:text-2xl font-bold text-gray-300">Ready to Explore</h2>
+              <p className="text-sm md:text-base text-gray-500">Search a topic to generate the graph</p>
             </div>
           </div>
         )}
       </div>
 
-      {/* FIX 2: Move MobileInterface AFTER the Graph to ensure it sits on top in the DOM order */}
+      {/* --- MOBILE INTERFACE --- */}
+      {/* Handles its own responsive visibility (hidden on lg) */}
       <MobileInterface 
         onSearch={handleSearch}
         isLoading={isLoading}
