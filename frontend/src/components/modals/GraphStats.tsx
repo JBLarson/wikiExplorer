@@ -15,10 +15,11 @@ interface NodeWithStats extends GraphNode {
   incomingEdges: number;
   outgoingEdges: number;
   neighborConnectivity: number;
+  clusteringCoeff: number; // New field for the % calculation
 }
 
 // Keys we allow sorting by
-type SortKey = 'label' | 'depth' | 'edgeCount' | 'outgoingEdges' | 'incomingEdges' | 'neighborConnectivity' | 'expansionCount';
+type SortKey = 'label' | 'depth' | 'edgeCount' | 'outgoingEdges' | 'incomingEdges' | 'neighborConnectivity' | 'expansionCount' | 'clusteringCoeff';
 
 export function GraphStatsModal({ nodes, edges, onClose, onNodeClick }: GraphStatsModalProps) {
   // 1. Add state for sorting
@@ -28,36 +29,74 @@ export function GraphStatsModal({ nodes, edges, onClose, onNodeClick }: GraphSta
   });
 
   const nodesWithStats = useMemo(() => {
-    // --- Existing stats calculation logic ---
+    // --- 1. Create fast lookups ---
     const nodeEdgeMap = new Map<string, GraphEdge[]>();
     nodes.forEach(node => nodeEdgeMap.set(node.id, []));
 
+    // Fast lookup for edge existence: "source|target"
+    const edgeExistenceSet = new Set<string>();
+
     edges.forEach(edge => {
+      // Map for degree counting
       const sourceList = nodeEdgeMap.get(edge.source);
       const targetList = nodeEdgeMap.get(edge.target);
       if (sourceList) sourceList.push(edge);
       if (targetList) targetList.push(edge);
+
+      // Set for connectivity checking
+      edgeExistenceSet.add(`${edge.source}|${edge.target}`);
     });
 
+    // --- 2. Calculate Stats ---
     const stats: NodeWithStats[] = nodes.map(node => {
       const myEdges = nodeEdgeMap.get(node.id) || [];
       const outgoing = myEdges.filter(e => e.source === node.id).length;
       const incoming = myEdges.filter(e => e.target === node.id).length;
 
-      let neighborConnectivity = 0;
+      // Identify unique neighbors
       const neighborIds = new Set<string>();
       
       myEdges.forEach(edge => {
         const neighborId = edge.source === node.id ? edge.target : edge.source;
-        neighborIds.add(neighborId);
+        // Exclude self-loops from neighbor set for clustering calc
+        if (neighborId !== node.id) {
+          neighborIds.add(neighborId);
+        }
       });
 
+      // A. Neighbor Connectivity (Sum of neighbors' degrees)
+      let neighborConnectivity = 0;
       neighborIds.forEach(nId => {
         const neighborEdges = nodeEdgeMap.get(nId);
         if (neighborEdges) {
           neighborConnectivity += neighborEdges.length;
         }
       });
+
+      // B. Clustering Coefficient (% Actual Edges / Possible Edges between neighbors)
+      const neighbors = Array.from(neighborIds);
+      const k = neighbors.length;
+      let actualNeighborConnections = 0;
+      let clusteringCoeff = 0;
+
+      // Max possible edges in an undirected subgraph of k nodes is k * (k - 1) / 2
+      const maxPossibleConnections = (k * (k - 1)) / 2;
+
+      if (maxPossibleConnections > 0) {
+        // Check every unique pair of neighbors
+        for (let i = 0; i < k; i++) {
+          for (let j = i + 1; j < k; j++) {
+            const n1 = neighbors[i];
+            const n2 = neighbors[j];
+            
+            // Check if connection exists (either direction)
+            if (edgeExistenceSet.has(`${n1}|${n2}`) || edgeExistenceSet.has(`${n2}|${n1}`)) {
+              actualNeighborConnections++;
+            }
+          }
+        }
+        clusteringCoeff = Math.round((actualNeighborConnections / maxPossibleConnections) * 100);
+      }
       
       return {
         ...node,
@@ -65,10 +104,11 @@ export function GraphStatsModal({ nodes, edges, onClose, onNodeClick }: GraphSta
         outgoingEdges: outgoing,
         incomingEdges: incoming,
         neighborConnectivity,
+        clusteringCoeff
       };
     });
 
-    // 2. Dynamic Sorting Logic
+    // --- 3. Sort ---
     return stats.sort((a, b) => {
       const aValue = a[sortConfig.key];
       const bValue = b[sortConfig.key];
@@ -85,7 +125,7 @@ export function GraphStatsModal({ nodes, edges, onClose, onNodeClick }: GraphSta
       if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [nodes, edges, sortConfig]); // Re-run when sortConfig changes
+  }, [nodes, edges, sortConfig]);
 
   const totalEdges = edges.length;
   const avgEdgesPerNode = nodes.length > 0 ? (totalEdges * 2 / nodes.length).toFixed(1) : '0';
@@ -95,7 +135,6 @@ export function GraphStatsModal({ nodes, edges, onClose, onNodeClick }: GraphSta
     onClose();
   };
 
-  // 3. Helper to handle header clicks
   const requestSort = (key: SortKey) => {
     let direction: 'asc' | 'desc' = 'desc';
     
@@ -110,11 +149,11 @@ export function GraphStatsModal({ nodes, edges, onClose, onNodeClick }: GraphSta
     setSortConfig({ key, direction });
   };
 
-  // 4. Helper to render header with icon
-  const SortableHeader = ({ label, sortKey, align = 'left' }: { label: string, sortKey: SortKey, align?: string }) => (
+  const SortableHeader = ({ label, sortKey, align = 'left', title }: { label: string, sortKey: SortKey, align?: string, title?: string }) => (
     <th 
       className={`p-4 text-${align} text-xs font-semibold text-gray-400 uppercase tracking-wider cursor-pointer hover:text-white transition-colors group select-none`}
       onClick={() => requestSort(sortKey)}
+      title={title}
     >
       <div className={`flex items-center gap-1 ${align === 'center' ? 'justify-center' : ''}`}>
         {label}
@@ -163,7 +202,8 @@ export function GraphStatsModal({ nodes, edges, onClose, onNodeClick }: GraphSta
                 <SortableHeader label="Total Edges" sortKey="edgeCount" align="center" />
                 <SortableHeader label="Outgoing" sortKey="outgoingEdges" align="center" />
                 <SortableHeader label="Incoming" sortKey="incomingEdges" align="center" />
-                <SortableHeader label="Neighbor Conn." sortKey="neighborConnectivity" align="center" />
+                <SortableHeader label="Neighbor Conn." sortKey="neighborConnectivity" align="center" title="Sum of neighbor degrees" />
+                <SortableHeader label="Cluster %" sortKey="clusteringCoeff" align="center" title="% Actual Edges / Possible Edges between neighbors" />
                 <SortableHeader label="Expansions" sortKey="expansionCount" align="center" />
               </tr>
             </thead>
@@ -203,6 +243,15 @@ export function GraphStatsModal({ nodes, edges, onClose, onNodeClick }: GraphSta
                   </td>
                   <td className="p-4 text-center text-emerald-400 font-mono text-sm font-medium">
                     {node.neighborConnectivity}
+                  </td>
+                  <td className="p-4 text-center font-mono text-sm font-medium">
+                    {/* Color code based on density */}
+                    <span className={`${
+                      node.clusteringCoeff > 50 ? 'text-purple-400' : 
+                      node.clusteringCoeff > 25 ? 'text-blue-400' : 'text-gray-500'
+                    }`}>
+                      {node.clusteringCoeff}%
+                    </span>
                   </td>
                   <td className="p-4 text-center text-gray-400 font-mono text-sm">
                     {node.expansionCount}×
