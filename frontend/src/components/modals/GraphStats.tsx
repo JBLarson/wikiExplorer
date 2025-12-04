@@ -1,6 +1,13 @@
 // frontend/src/components/modals/GraphStats.tsx
-import { XMarkIcon, ChevronUpIcon, ChevronDownIcon } from '@heroicons/react/24/outline';
-import { useMemo, useState } from 'react';
+import { 
+  XMarkIcon, 
+  ChevronUpIcon, 
+  ChevronDownIcon, 
+  FunnelIcon,
+  TrashIcon
+} from '@heroicons/react/24/outline';
+import { FunnelIcon as FunnelIconSolid } from '@heroicons/react/24/solid';
+import { useMemo, useState, useEffect, useRef } from 'react';
 import type { GraphNode, GraphEdge } from '../../types';
 
 interface GraphStatsModalProps {
@@ -15,81 +22,99 @@ interface NodeWithStats extends GraphNode {
   incomingEdges: number;
   outgoingEdges: number;
   neighborConnectivity: number;
-  clusteringCoeff: number; // New field for the % calculation
+  clusteringCoeff: number;
 }
 
-// Keys we allow sorting by
+// --- Types ---
 type SortKey = 'label' | 'depth' | 'edgeCount' | 'outgoingEdges' | 'incomingEdges' | 'neighborConnectivity' | 'expansionCount' | 'clusteringCoeff';
+type ColumnType = 'text' | 'number' | 'category';
+
+interface SortConfig {
+  key: SortKey;
+  direction: 'asc' | 'desc';
+}
+
+interface FilterState {
+  min?: number;
+  max?: number;
+  search?: string;
+  selectedCategories?: number[]; // For depth
+}
+
+// --- Persistence Key ---
+const STORAGE_KEY = 'wikiExplorer_stats_config';
 
 export function GraphStatsModal({ nodes, edges, onClose, onNodeClick }: GraphStatsModalProps) {
-  // 1. Add state for sorting
-  const [sortConfig, setSortConfig] = useState<{ key: SortKey; direction: 'asc' | 'desc' }>({
-    key: 'edgeCount',
-    direction: 'desc', // Default to highest connectivity
-  });
+  
+  // --- 1. State Management ---
+  
+  // Load initial state from session storage
+  const loadInitialState = () => {
+    try {
+      const saved = sessionStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        return JSON.parse(saved);
+      }
+    } catch (e) {
+      console.error("Failed to load session state", e);
+    }
+    return {
+      sortHistory: [{ key: 'edgeCount', direction: 'desc' }] as SortConfig[],
+      filters: {} as Record<string, FilterState>
+    };
+  };
 
+  const [initialState] = useState(loadInitialState);
+  const [sortHistory, setSortHistory] = useState<SortConfig[]>(initialState.sortHistory);
+  const [filters, setFilters] = useState<Record<string, FilterState>>(initialState.filters);
+  const [activeFilterDropdown, setActiveFilterDropdown] = useState<string | null>(null);
+
+  // Persist state changes
+  useEffect(() => {
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ sortHistory, filters }));
+  }, [sortHistory, filters]);
+
+  // --- 2. Data Processing (Stats Calculation) ---
   const nodesWithStats = useMemo(() => {
-    // --- 1. Create fast lookups ---
     const nodeEdgeMap = new Map<string, GraphEdge[]>();
     nodes.forEach(node => nodeEdgeMap.set(node.id, []));
-
-    // Fast lookup for edge existence: "source|target"
     const edgeExistenceSet = new Set<string>();
 
     edges.forEach(edge => {
-      // Map for degree counting
-      const sourceList = nodeEdgeMap.get(edge.source);
-      const targetList = nodeEdgeMap.get(edge.target);
-      if (sourceList) sourceList.push(edge);
-      if (targetList) targetList.push(edge);
-
-      // Set for connectivity checking
+      nodeEdgeMap.get(edge.source)?.push(edge);
+      nodeEdgeMap.get(edge.target)?.push(edge);
       edgeExistenceSet.add(`${edge.source}|${edge.target}`);
     });
 
-    // --- 2. Calculate Stats ---
-    const stats: NodeWithStats[] = nodes.map(node => {
+    return nodes.map(node => {
       const myEdges = nodeEdgeMap.get(node.id) || [];
       const outgoing = myEdges.filter(e => e.source === node.id).length;
       const incoming = myEdges.filter(e => e.target === node.id).length;
 
-      // Identify unique neighbors
       const neighborIds = new Set<string>();
-      
       myEdges.forEach(edge => {
         const neighborId = edge.source === node.id ? edge.target : edge.source;
-        // Exclude self-loops from neighbor set for clustering calc
-        if (neighborId !== node.id) {
-          neighborIds.add(neighborId);
-        }
+        if (neighborId !== node.id) neighborIds.add(neighborId);
       });
 
-      // A. Neighbor Connectivity (Sum of neighbors' degrees)
       let neighborConnectivity = 0;
       neighborIds.forEach(nId => {
-        const neighborEdges = nodeEdgeMap.get(nId);
-        if (neighborEdges) {
-          neighborConnectivity += neighborEdges.length;
-        }
+        const nEdges = nodeEdgeMap.get(nId);
+        if (nEdges) neighborConnectivity += nEdges.length;
       });
 
-      // B. Clustering Coefficient (% Actual Edges / Possible Edges between neighbors)
+      // Clustering Coefficient Logic
       const neighbors = Array.from(neighborIds);
       const k = neighbors.length;
       let actualNeighborConnections = 0;
       let clusteringCoeff = 0;
-
-      // Max possible edges in an undirected subgraph of k nodes is k * (k - 1) / 2
       const maxPossibleConnections = (k * (k - 1)) / 2;
 
       if (maxPossibleConnections > 0) {
-        // Check every unique pair of neighbors
         for (let i = 0; i < k; i++) {
           for (let j = i + 1; j < k; j++) {
             const n1 = neighbors[i];
             const n2 = neighbors[j];
-            
-            // Check if connection exists (either direction)
             if (edgeExistenceSet.has(`${n1}|${n2}`) || edgeExistenceSet.has(`${n2}|${n1}`)) {
               actualNeighborConnections++;
             }
@@ -107,79 +132,297 @@ export function GraphStatsModal({ nodes, edges, onClose, onNodeClick }: GraphSta
         clusteringCoeff
       };
     });
+  }, [nodes, edges]);
 
-    // --- 3. Sort ---
-    return stats.sort((a, b) => {
-      const aValue = a[sortConfig.key];
-      const bValue = b[sortConfig.key];
+  // --- 3. Filtering Logic ---
+  const filteredAndSortedNodes = useMemo(() => {
+    let result = [...nodesWithStats];
 
-      // Handle string comparison for 'label'
-      if (sortConfig.key === 'label') {
-        return sortConfig.direction === 'asc' 
-          ? String(aValue).localeCompare(String(bValue))
-          : String(bValue).localeCompare(String(aValue));
+    // Apply Filters
+    Object.entries(filters).forEach(([key, filter]) => {
+      result = result.filter(node => {
+        const val = node[key as keyof NodeWithStats];
+
+        // Number Range
+        if (typeof val === 'number') {
+          if (filter.min !== undefined && val < filter.min) return false;
+          if (filter.max !== undefined && val > filter.max) return false;
+        }
+
+        // Text Search
+        if (typeof val === 'string' && filter.search) {
+          if (!val.toLowerCase().includes(filter.search.toLowerCase())) return false;
+        }
+
+        // Category (Depth)
+        if (key === 'depth' && filter.selectedCategories) {
+          if (!filter.selectedCategories.includes(node.depth)) return false;
+        }
+
+        return true;
+      });
+    });
+
+    // Apply Multi-Level Stable Sort
+    [...sortHistory].reverse().forEach(config => {
+      result.sort((a, b) => {
+        const valA = a[config.key];
+        const valB = b[config.key];
+
+        if (typeof valA === 'string' && typeof valB === 'string') {
+          return config.direction === 'asc' 
+            ? valA.localeCompare(valB) 
+            : valB.localeCompare(valA);
+        }
+        
+        if (valA < valB) return config.direction === 'asc' ? -1 : 1;
+        if (valA > valB) return config.direction === 'asc' ? 1 : -1;
+        return 0;
+      });
+    });
+
+    return result;
+  }, [nodesWithStats, filters, sortHistory]);
+
+  // --- 4. Handlers ---
+
+  const handleSort = (key: SortKey) => {
+    setSortHistory(prev => {
+      const existingIndex = prev.findIndex(s => s.key === key);
+      let newDirection: 'asc' | 'desc' = 'desc';
+
+      if (existingIndex === 0) {
+        newDirection = prev[0].direction === 'asc' ? 'desc' : 'asc';
+      } else if (key === 'label') {
+        newDirection = 'asc';
       }
 
-      // Handle number comparison
-      if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
-      if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
-      return 0;
+      const cleanHistory = prev.filter(s => s.key !== key);
+      return [{ key, direction: newDirection }, ...cleanHistory].slice(0, 3);
     });
-  }, [nodes, edges, sortConfig]);
+  };
 
-  const totalEdges = edges.length;
-  const avgEdgesPerNode = nodes.length > 0 ? (totalEdges * 2 / nodes.length).toFixed(1) : '0';
+  const updateFilter = (key: string, updates: Partial<FilterState>) => {
+    setFilters(prev => {
+      const current = prev[key] || {};
+      const updated = { ...current, ...updates };
+      
+      if (updated.min === undefined && updated.max === undefined && !updated.search && !updated.selectedCategories) {
+        const { [key]: _, ...rest } = prev; // eslint-disable-line
+        return rest;
+      }
+      
+      return { ...prev, [key]: updated };
+    });
+  };
+
+  const clearFilter = (key: string) => {
+    setFilters(prev => {
+      const { [key]: removed, ...rest } = prev;
+      return rest;
+    });
+    setActiveFilterDropdown(null);
+  };
+
+  // --- 5. Helper Components ---
+
+  const ColumnHeader = ({ 
+    label, 
+    id, 
+    type,
+    align = 'center', 
+    title 
+  }: { 
+    label: string, 
+    id: SortKey, 
+    type: ColumnType,
+    align?: 'left' | 'center' | 'right', 
+    title?: string 
+  }) => {
+    const sortIndex = sortHistory.findIndex(s => s.key === id);
+    const isSorted = sortIndex !== -1;
+    const sortConfig = sortHistory[sortIndex];
+    const isFiltered = !!filters[id];
+    const dropdownOpen = activeFilterDropdown === id;
+    const dropdownRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+      const handleClick = (e: MouseEvent) => {
+        if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+          setActiveFilterDropdown(null);
+        }
+      };
+      if (dropdownOpen) document.addEventListener('mousedown', handleClick);
+      return () => document.removeEventListener('mousedown', handleClick);
+    }, [dropdownOpen]);
+
+    const uniqueValues = useMemo(() => {
+      if (type !== 'category') return [];
+      return Array.from(new Set(nodesWithStats.map(n => n[id]))).sort((a, b) => (a as number) - (b as number));
+    }, []);
+
+    return (
+      <th className={`relative p-0 z-${dropdownOpen ? '50' : '10'}`}>
+        <div className={`
+          flex items-center gap-2 p-4
+          ${align === 'center' ? 'justify-center' : align === 'right' ? 'justify-end' : 'justify-start'}
+          text-xs font-semibold uppercase tracking-wider
+          group hover:bg-abyss-hover/50 transition-colors
+          ${isSorted ? 'text-white' : 'text-gray-400'}
+        `}>
+          {/* Label & Sort Click Area - Explicitly select-none to prevent highlighting while sorting */}
+          <div 
+            className="flex items-center gap-1 cursor-pointer select-text"
+            onClick={() => handleSort(id)}
+            title={title || `Sort by ${label}`}
+          >
+            {label}
+            {isSorted && (
+              <span className="flex items-center text-brand-glow">
+                {sortConfig.direction === 'asc' ? <ChevronUpIcon className="w-3 h-3" /> : <ChevronDownIcon className="w-3 h-3" />}
+                {sortIndex > 0 && <span className="text-[9px] ml-0.5 opacity-70">{sortIndex + 1}</span>}
+              </span>
+            )}
+          </div>
+
+          {/* Filter Trigger */}
+          <button
+            onClick={(e) => { e.stopPropagation(); setActiveFilterDropdown(dropdownOpen ? null : id); }}
+            className={`p-1 rounded hover:bg-abyss-highlight transition-colors ${isFiltered ? 'text-brand-primary' : 'text-gray-600 hover:text-gray-300'}`}
+          >
+            {isFiltered ? <FunnelIconSolid className="w-3.5 h-3.5" /> : <FunnelIcon className="w-3.5 h-3.5" />}
+          </button>
+        </div>
+
+        {/* Filter Dropdown - Needs select-text for inputs */}
+        {dropdownOpen && (
+          <div 
+            ref={dropdownRef}
+            className="absolute top-full right-0 mt-1 w-56 bg-abyss-surface border border-abyss-border rounded-xl shadow-2xl overflow-hidden z-50 p-3 animate-fade-in cursor-default text-left select-text"
+          >
+            <div className="text-xs font-semibold text-white mb-2 pb-2 border-b border-abyss-border flex justify-between items-center">
+              <span>Filter {label}</span>
+              {isFiltered && (
+                <button onClick={() => clearFilter(id)} className="text-red-400 hover:text-red-300 flex items-center gap-1">
+                  <TrashIcon className="w-3 h-3" /> Clear
+                </button>
+              )}
+            </div>
+
+            <div className="space-y-3">
+              {type === 'number' && (
+                <div className="flex gap-2">
+                  <div className="space-y-1">
+                    <label className="text-[10px] text-gray-500 uppercase">Min</label>
+                    <input 
+                      type="number" 
+                      value={filters[id]?.min ?? ''}
+                      onChange={e => updateFilter(id, { min: e.target.value ? Number(e.target.value) : undefined })}
+                      className="w-full bg-abyss border border-abyss-border rounded px-2 py-1 text-white text-sm focus:border-brand-primary/50 outline-none"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] text-gray-500 uppercase">Max</label>
+                    <input 
+                      type="number" 
+                      value={filters[id]?.max ?? ''}
+                      onChange={e => updateFilter(id, { max: e.target.value ? Number(e.target.value) : undefined })}
+                      className="w-full bg-abyss border border-abyss-border rounded px-2 py-1 text-white text-sm focus:border-brand-primary/50 outline-none"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {type === 'text' && (
+                <div className="space-y-1">
+                  <label className="text-[10px] text-gray-500 uppercase">Contains</label>
+                  <input 
+                    type="text" 
+                    value={filters[id]?.search ?? ''}
+                    onChange={e => updateFilter(id, { search: e.target.value })}
+                    placeholder="Search..."
+                    className="w-full bg-abyss border border-abyss-border rounded px-2 py-1 text-white text-sm focus:border-brand-primary/50 outline-none"
+                    autoFocus
+                  />
+                </div>
+              )}
+
+              {type === 'category' && (
+                <div className="space-y-2">
+                  <div className="flex gap-2 mb-1">
+                    <button 
+                      onClick={() => updateFilter(id, { selectedCategories: uniqueValues as number[] })}
+                      className="text-[10px] text-brand-glow hover:underline"
+                    >
+                      Select All
+                    </button>
+                    <button 
+                      onClick={() => updateFilter(id, { selectedCategories: [] })}
+                      className="text-[10px] text-brand-glow hover:underline"
+                    >
+                      None
+                    </button>
+                  </div>
+                  <div className="max-h-32 overflow-y-auto custom-scrollbar space-y-1 border border-abyss-border rounded p-1 bg-abyss">
+                    {uniqueValues.map(val => {
+                      const isSelected = filters[id]?.selectedCategories?.includes(val as number) ?? true;
+                      return (
+                        <label key={val as number} className="flex items-center gap-2 px-2 py-1 hover:bg-abyss-highlight rounded cursor-pointer">
+                          <input 
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={(e) => {
+                              const current = filters[id]?.selectedCategories ?? uniqueValues as number[];
+                              let next;
+                              if (e.target.checked) {
+                                next = [...current, val as number];
+                              } else {
+                                next = current.filter(v => v !== val);
+                              }
+                              updateFilter(id, { selectedCategories: next });
+                            }}
+                            className="rounded border-abyss-border bg-abyss-surface text-brand-primary focus:ring-0 w-3.5 h-3.5"
+                          />
+                          <span className="text-sm text-gray-300">{val}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </th>
+    );
+  };
 
   const handleRowClick = (nodeId: string) => {
     onNodeClick(nodeId);
     onClose();
   };
 
-  const requestSort = (key: SortKey) => {
-    let direction: 'asc' | 'desc' = 'desc';
-    
-    // If clicking the same column, toggle direction
-    if (sortConfig.key === key && sortConfig.direction === 'desc') {
-      direction = 'asc';
-    } else if (sortConfig.key !== key && key === 'label') {
-      // Default to ascending for text
-      direction = 'asc';
-    }
-
-    setSortConfig({ key, direction });
-  };
-
-  const SortableHeader = ({ label, sortKey, align = 'left', title }: { label: string, sortKey: SortKey, align?: string, title?: string }) => (
-    <th 
-      className={`p-4 text-${align} text-xs font-semibold text-gray-400 uppercase tracking-wider cursor-pointer hover:text-white transition-colors group select-none`}
-      onClick={() => requestSort(sortKey)}
-      title={title}
-    >
-      <div className={`flex items-center gap-1 ${align === 'center' ? 'justify-center' : ''}`}>
-        {label}
-        <span className="w-3 h-3 flex items-center">
-          {sortConfig.key === sortKey ? (
-            sortConfig.direction === 'asc' ? <ChevronUpIcon /> : <ChevronDownIcon />
-          ) : (
-            // Ghost icon that appears on hover
-            <ChevronDownIcon className="opacity-0 group-hover:opacity-30" />
-          )}
-        </span>
-      </div>
-    </th>
-  );
+  const totalEdges = edges.length;
+  const avgEdgesPerNode = nodes.length > 0 ? (totalEdges * 2 / nodes.length).toFixed(1) : '0';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-6 pointer-events-auto bg-black/60 backdrop-blur-sm">
-      <div className="relative w-full max-w-6xl h-[90vh] bg-abyss-surface border border-abyss-border rounded-2xl shadow-2xl overflow-hidden animate-fade-in flex flex-col">
+      {/* ADDED: select-text
+        Overrides the global select-none from App.tsx so you can copy table data 
+      */}
+      <div className="relative w-full max-w-6xl h-[90vh] bg-abyss-surface border border-abyss-border rounded-2xl shadow-2xl overflow-hidden animate-fade-in flex flex-col select-text">
         
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-abyss-border bg-abyss">
+        <div className="flex items-center justify-between p-6 border-b border-abyss-border bg-abyss select-none">
           <div>
             <h2 className="text-2xl font-bold text-white mb-1">Graph Statistics</h2>
-            <p className="text-sm text-gray-400">
-              {nodes.length} nodes • {totalEdges} edges • {avgEdgesPerNode} avg edges/node
-            </p>
+            <div className="flex items-center gap-3 text-sm text-gray-400">
+              <span>{filteredAndSortedNodes.length} / {nodes.length} nodes shown</span>
+              <span>•</span>
+              <span>{totalEdges} total edges</span>
+              <span>•</span>
+              <span>{avgEdgesPerNode} avg/node</span>
+            </div>
           </div>
           <button
             onClick={onClose}
@@ -191,36 +434,32 @@ export function GraphStatsModal({ nodes, edges, onClose, onNodeClick }: GraphSta
 
         {/* Table */}
         <div className="flex-1 overflow-auto custom-scrollbar">
-          <table className="w-full">
-            <thead className="sticky top-0 bg-abyss border-b border-abyss-border z-10">
+          <table className="w-full relative">
+            <thead className="sticky top-0 bg-abyss border-b border-abyss-border shadow-lg z-20">
               <tr>
-                <th className="text-left p-4 text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                  #
-                </th>
-                <SortableHeader label="Article" sortKey="label" align="left" />
-                <SortableHeader label="Depth" sortKey="depth" align="center" />
-                <SortableHeader label="Total Edges" sortKey="edgeCount" align="center" />
-                <SortableHeader label="Outgoing" sortKey="outgoingEdges" align="center" />
-                <SortableHeader label="Incoming" sortKey="incomingEdges" align="center" />
-                <SortableHeader label="Neighbor Conn." sortKey="neighborConnectivity" align="center" title="Sum of neighbor degrees" />
-                <SortableHeader label="Cluster %" sortKey="clusteringCoeff" align="center" title="% Actual Edges / Possible Edges between neighbors" />
-                <SortableHeader label="Expansions" sortKey="expansionCount" align="center" />
+                <th className="text-left p-4 text-xs font-semibold text-gray-400 uppercase tracking-wider w-16 select-none">#</th>
+                <ColumnHeader label="Article" id="label" type="text" align="left" />
+                <ColumnHeader label="Depth" id="depth" type="category" title="Distance from root" />
+                <ColumnHeader label="Edges" id="edgeCount" type="number" />
+                <ColumnHeader label="Outgoing" id="outgoingEdges" type="number" />
+                <ColumnHeader label="Incoming" id="incomingEdges" type="number" />
+                <ColumnHeader label="Connectivity" id="neighborConnectivity" type="number" title="Sum of neighbor degrees" />
+                <ColumnHeader label="Cluster %" id="clusteringCoeff" type="number" title="% Actual vs Possible edges between neighbors" />
+                <ColumnHeader label="Expansions" id="expansionCount" type="number" />
               </tr>
             </thead>
             <tbody>
-              {nodesWithStats.map((node, index) => (
+              {filteredAndSortedNodes.map((node, index) => (
                 <tr
                   key={node.id}
                   onClick={() => handleRowClick(node.id)}
                   className="border-b border-abyss-border hover:bg-abyss-hover transition-colors cursor-pointer group"
                 >
-                  <td className="p-4 text-gray-400 font-mono text-sm">
-                    {index + 1}
-                  </td>
+                  <td className="p-4 text-gray-500 font-mono text-sm select-none">{index + 1}</td>
                   <td className="p-4">
                     <div className="flex items-center gap-3">
                       <div className={`w-3 h-3 rounded-full flex-shrink-0 ${getDepthColor(node.depth)}`} />
-                      <div className="text-white font-medium group-hover:text-brand-glow transition-colors">
+                      <div className="text-white font-medium group-hover:text-brand-glow transition-colors truncate max-w-[200px]" title={node.label}>
                         {node.label}
                       </div>
                     </div>
@@ -235,17 +474,10 @@ export function GraphStatsModal({ nodes, edges, onClose, onNodeClick }: GraphSta
                       {node.edgeCount}
                     </span>
                   </td>
-                  <td className="p-4 text-center text-gray-300 font-mono text-sm">
-                    {node.outgoingEdges}
-                  </td>
-                  <td className="p-4 text-center text-gray-300 font-mono text-sm">
-                    {node.incomingEdges}
-                  </td>
-                  <td className="p-4 text-center text-emerald-400 font-mono text-sm font-medium">
-                    {node.neighborConnectivity}
-                  </td>
+                  <td className="p-4 text-center text-gray-300 font-mono text-sm">{node.outgoingEdges}</td>
+                  <td className="p-4 text-center text-gray-300 font-mono text-sm">{node.incomingEdges}</td>
+                  <td className="p-4 text-center text-emerald-400 font-mono text-sm font-medium">{node.neighborConnectivity}</td>
                   <td className="p-4 text-center font-mono text-sm font-medium">
-                    {/* Color code based on density */}
                     <span className={`${
                       node.clusteringCoeff > 50 ? 'text-purple-400' : 
                       node.clusteringCoeff > 25 ? 'text-blue-400' : 'text-gray-500'
@@ -253,18 +485,26 @@ export function GraphStatsModal({ nodes, edges, onClose, onNodeClick }: GraphSta
                       {node.clusteringCoeff}%
                     </span>
                   </td>
-                  <td className="p-4 text-center text-gray-400 font-mono text-sm">
-                    {node.expansionCount}×
-                  </td>
+                  <td className="p-4 text-center text-gray-400 font-mono text-sm">{node.expansionCount}×</td>
                 </tr>
               ))}
+              {filteredAndSortedNodes.length === 0 && (
+                <tr>
+                  <td colSpan={9} className="p-8 text-center text-gray-500">
+                    No nodes match the current filters.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
 
         {/* Footer */}
-        <div className="p-4 border-t border-abyss-border bg-abyss flex items-center justify-between text-xs text-gray-500">
-          <span>Click column headers to sort • Click rows to focus node</span>
+        <div className="p-4 border-t border-abyss-border bg-abyss flex items-center justify-between text-xs text-gray-500 select-none">
+          <div className="flex gap-4">
+            <span>Shift+Click header for multi-sort (auto-enabled)</span>
+            <span>Click funnel icon to filter</span>
+          </div>
           <span>Press ESC to close</span>
         </div>
       </div>
@@ -272,12 +512,13 @@ export function GraphStatsModal({ nodes, edges, onClose, onNodeClick }: GraphSta
   );
 }
 
-// ... existing helper functions (getDepthColor, getDepthBadgeColor) ...
+// --- Helpers ---
+
 function getDepthColor(depth: number): string {
   const hue = 280 - (Math.min(depth, 6) * 27);
   const saturation = 70 + (depth * 4);
   const lightness = 65 - (depth * 6);
-  return `shadow-[0_0_8px_hsl(${hue},${saturation}%,${lightness}%,0.6)]`;
+  return `shadow-[0_0_8px_hsl(${hue},${saturation}%,${lightness}%,0.6)] bg-[hsl(${hue},${saturation}%,${lightness}%)]`;
 }
 
 function getDepthBadgeColor(depth: number): string {
