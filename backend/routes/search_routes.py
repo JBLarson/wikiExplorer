@@ -3,7 +3,7 @@ import numpy as np
 from datetime import datetime
 
 from core.ranking import (
-    calculate_multisignal_score,
+    calculate_multisignal_score, 
     normalize_pagerank,
     normalize_pageviews,
     calculate_title_match_score,
@@ -16,38 +16,32 @@ from sqlalchemy.exc import IntegrityError
 
 search_bp = Blueprint('search', __name__)
 
-
-
-
-@search_bp.route('/related/<path:query>', methods=['GET'])
-def get_related(query):
+@search_bp.route('/related', methods=['POST'])
+def get_related():
     search_engine = current_app.search_engine
     cursor = search_engine.metadata_db.cursor()
     
-    ranking_mode = request.args.get('ranking', 'default')
-    debug_mode = request.args.get('debug', 'false').lower() == 'true'
-    context_str = request.args.get('context', '')
-    is_private = request.args.get('private', 'false').lower() == 'true'
+    # Parse JSON body
+    data = request.json
+    query = data.get('query', '')
+    context_ids_input = data.get('context', []) # Expecting list of integers
+    k_results = int(data.get('k', search_engine.config.RESULTS_TO_RETURN))
+    ranking_mode = data.get('ranking', 'default')
+    debug_mode = data.get('debug', False)
+    is_private = data.get('private', False)
+
+    k_results = min(k_results, 100)
     
-    try:
-        k_results = int(request.args.get('k', search_engine.config.RESULTS_TO_RETURN))
-        k_results = min(k_results, 100)
-    except:
-        k_results = search_engine.config.RESULTS_TO_RETURN
-    
-    # Resolve context IDs
+    if not query:
+        return jsonify({"error": "Query is required"}), 400
+
+    # Ensure context IDs are integers
     context_ids = []
-    if context_str:
-        context_titles = [x.strip().replace('_', ' ') for x in context_str.split(',') if x.strip()]
-        if context_titles:
-            placeholders = ','.join('?' * len(context_titles))
-            sql = f"SELECT article_id FROM articles WHERE title IN ({placeholders})"
-            try:
-                cursor.execute(sql, context_titles)
-                context_ids = [row['article_id'] for row in cursor.fetchall()]
-            except Exception as e:
-                print(f"Error resolving context IDs: {e}")
-    
+    try:
+        context_ids = [int(x) for x in context_ids_input]
+    except ValueError:
+        print("Warning: invalid context IDs received")
+
     # Find query exclusion ID
     exclude_id = None
     lookup_strategies = [
@@ -109,9 +103,9 @@ def get_related(query):
     valid_candidate_ids = []
     
     for cand_id in candidate_ids:
-        data = data_map.get(cand_id)
+        row_data = data_map.get(cand_id)
         
-        if not data or is_meta_page(data['title']):
+        if not row_data or is_meta_page(row_data['title']):
             continue
             
         valid_candidate_ids.append(cand_id)
@@ -121,14 +115,14 @@ def get_related(query):
             final_score = semantic_score
             debug_info = {'semantic': semantic_score}
         else:
-            pagerank = data['pagerank'] if search_engine.available_signals['pagerank'] and 'pagerank' in data.keys() else 0
-            pageviews = data['pageviews'] if search_engine.available_signals['pageviews'] and 'pageviews' in data.keys() else 0
+            pagerank = row_data['pagerank'] if search_engine.available_signals['pagerank'] and 'pagerank' in row_data.keys() else 0
+            pageviews = row_data['pageviews'] if search_engine.available_signals['pageviews'] and 'pageviews' in row_data.keys() else 0
             
             final_score = calculate_multisignal_score(
                 semantic_similarity=semantic_score,
                 pagerank_score=pagerank,
                 pageview_count=pageviews,
-                title=data['title'],
+                title=row_data['title'],
                 query=query
             )
             
@@ -139,13 +133,13 @@ def get_related(query):
                 'pagerank_norm': normalize_pagerank(pagerank),
                 'pageviews': int(pageviews) if pageviews else 0,
                 'pageviews_norm': normalize_pageviews(pageviews),
-                'title_match': calculate_title_match_score(data['title'], query),
+                'title_match': calculate_title_match_score(row_data['title'], query),
                 'final_score': final_score
             }
         
         result = {
             "id": cand_id,
-            "title": data['title'].replace(' ', '_'),
+            "title": row_data['title'].replace(' ', '_'),
             "score": int(final_score * 100),
             "score_float": float(final_score)
         }
@@ -158,11 +152,13 @@ def get_related(query):
     results.sort(key=lambda x: x['score_float'], reverse=True)
     top_results = results[:k_results]
     
-    # Calculate cross edges
+    # Calculate cross edges (Updated to use matrix check in cross_edges.py)
     new_result_ids = [r['id'] for r in top_results]
     cross_edges = []
+    
     if new_result_ids and search_engine.can_reconstruct:
         try:
+            # We compare new results vs existing context
             cross_edges = calculate_cross_edges(search_engine, new_result_ids, context_ids)
         except Exception as e:
             print(f"Error calculating cross edges: {e}")
@@ -214,10 +210,6 @@ def get_related(query):
         "results": final_results,
         "cross_edges": cross_edges
     })
-
-
-
-
 
 @search_bp.route('/article/<path:title>', methods=['GET'])
 def get_article_details(title):

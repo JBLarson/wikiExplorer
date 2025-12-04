@@ -58,17 +58,23 @@ export async function fetchArticleLinks(
 ): Promise<{ links: WikiLink[]; crossEdges: GraphEdge[] }> {
   
   // Normalize to underscored format for backend
-  const query = encodeURIComponent(title.replace(/ /g, '_'));
-  
-  // IMPORTANT: Send underscored IDs to backend
-  const contextParam = existingNodeIds.length > 0 
-    ? existingNodeIds.map(id => id.replace(/ /g, '_')).join(',') 
-    : '';
+  // For the POST body, we don't URI encode the title, just the spaces
+  const query = title.replace(/ /g, '_');
   
   try {
-    const response = await fetch(
-      `${BACKEND_API_BASE}/related/${query}?k=${k}&context=${contextParam}&private=${isPrivate}`
-    );
+    // UPDATED: Changed from GET to POST
+    const response = await fetch(`${BACKEND_API_BASE}/related`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        query: query,
+        k: k,
+        context: existingNodeIds, // Send RAW ids (backend handles strings/ints)
+        private: isPrivate
+      })
+    });
 
     if (!response.ok) {
       console.error('Backend API error:', response.status);
@@ -143,19 +149,6 @@ export async function fetchArticleFullText(title: string): Promise<string> {
     );
   }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 export async function checkBackendHealth(): Promise<boolean> {
