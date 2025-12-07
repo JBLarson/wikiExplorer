@@ -49,7 +49,7 @@ interface BackendResponse {
 export async function fetchArticleLinks(
   title: string,
   existingNodeLabels: string[],
-  allGraphNodeIds: string[], // RENAMED: Make it clear this is the whole graph
+  allGraphNodeIds: string[], // CHANGED: Now accepts IDs instead of titles
   k: number = 49,
   isPrivate: boolean = false
 ): Promise<{ links: WikiLink[]; crossEdges: GraphEdge[] }> {
@@ -65,7 +65,7 @@ export async function fetchArticleLinks(
       body: JSON.stringify({
         query: query,
         k: k,
-        context: allGraphNodeIds, // Pass the FULL global context
+        context: allGraphNodeIds, // Sending IDs now
         private: isPrivate
       })
     });

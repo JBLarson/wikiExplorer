@@ -9,10 +9,14 @@ from core.ranking import (
     calculate_title_match_score,
     is_meta_page
 )
-from core.cross_edges import calculate_cross_edges
+from core.cross_edges import calculate_global_cross_edges
 from models import db, PublicSearch
 
 search_bp = Blueprint('search', __name__)
+
+def normalize_node_id(title):
+    """Convert title to ID format"""
+    return title.lower().replace(' ', '_')
 
 @search_bp.route('/related', methods=['POST'])
 def get_related():
@@ -23,8 +27,8 @@ def get_related():
     data = request.json
     query = data.get('query', '')
     
-    # FIX: Do not cast to int. Receive list of strings (Titles)
-    context_titles = data.get('context', [])
+    # FIX: Accept node IDs instead of titles
+    context_node_ids = data.get('context', [])
     
     k_results = int(data.get('k', search_engine.config.RESULTS_TO_RETURN))
     ranking_mode = data.get('ranking', 'default')
@@ -141,10 +145,37 @@ def get_related():
     new_result_ids = [r['id'] for r in top_results]
     cross_edges = []
     
-    if new_result_ids and search_engine.can_reconstruct:
+    if search_engine.can_reconstruct:
         try:
-            # FIX: Pass context_titles (list of strings) directly
-            cross_edges = calculate_cross_edges(search_engine, new_result_ids, context_titles)
+            # Convert context_node_ids to integers
+            context_ids_int = []
+            for ctx_id in context_node_ids:
+                try:
+                    # Handle both integer IDs and title strings
+                    if isinstance(ctx_id, str):
+                        # Try to look up by title
+                        cursor.execute("SELECT article_id FROM articles WHERE title = ? OR title = ? OR lookup_title = ?", 
+                                     (ctx_id, ctx_id.replace('_', ' '), ctx_id.lower()))
+                        row = cursor.fetchone()
+                        if row:
+                            context_ids_int.append(int(row['article_id']))
+                    else:
+                        context_ids_int.append(int(ctx_id))
+                except Exception as e:
+                    print(f"Warning: Could not convert context ID {ctx_id}: {e}")
+                    continue
+            
+            # Combine existing graph nodes + new results
+            all_node_ids = list(set(context_ids_int + new_result_ids))
+            
+            if len(all_node_ids) > 1:
+                print(f"Computing global cross-edges for {len(all_node_ids)} total nodes...")
+                cross_edges = calculate_global_cross_edges(
+                    search_engine, 
+                    all_node_ids,
+                    threshold=0.62,
+                    max_edges_per_node=5
+                )
         except Exception as e:
             import traceback
             traceback.print_exc()

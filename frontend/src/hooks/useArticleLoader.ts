@@ -28,8 +28,9 @@ export function useArticleLoader() {
     // Use getState() for accuracy
     const currentNodes = useGraphStore.getState().nodes;
     const existingNodeLabels = currentNodes.map(n => n.label);
-    // FIX: Send Labels, not IDs
-    const allGraphLabels = currentNodes.map(n => n.label);
+    
+    // FIX: Send IDs instead of Labels
+    const allGraphNodeIds = currentNodes.map(n => n.id);
 
     try {
       const article = await fetchArticleSummary(title);
@@ -49,11 +50,11 @@ export function useArticleLoader() {
         setRootNode(nodeId);
       }
 
-      // Fetch links with Global Context
+      // Fetch links with Global Context (IDs)
       const { links, crossEdges } = await fetchArticleLinks(
         article.title,
         existingNodeLabels,
-        allGraphLabels, // <-- Sending Titles
+        allGraphNodeIds, // <-- Sending IDs now
         49,
         isPrivate
       );

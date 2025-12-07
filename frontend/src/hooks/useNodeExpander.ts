@@ -49,14 +49,13 @@ export function useNodeExpander() {
         const allNodes = useGraphStore.getState().nodes;
         const existingNodeLabels = allNodes.map(n => n.label);
         
-        // FIX: Send LABELS (Titles) not IDs. 
-        // Backend embeddings work best with "Graph Theory", not "graph_theory"
-        const allGraphLabels = allNodes.map(n => n.label); 
+        // FIX: Send IDs (not Titles)
+        const allGraphNodeIds = allNodes.map(n => n.id);
 
         const { links, crossEdges } = await fetchArticleLinks(
           node.label,
           existingNodeLabels,
-          allGraphLabels, // <-- Sending Titles now
+          allGraphNodeIds, // <-- Sending IDs now
           28
         );
 

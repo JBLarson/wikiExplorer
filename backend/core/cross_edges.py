@@ -1,105 +1,88 @@
 import numpy as np
 from sentence_transformers import util
 
-def calculate_cross_edges(search_engine, candidate_ids, context_titles):
+def calculate_global_cross_edges(search_engine, all_node_ids, threshold=0.62, max_edges_per_node=5):
     """
-    Calculates edges between:
-    1. New Candidates (IDs) <-> New Candidates (IDs)
-    2. New Candidates (IDs) <-> Global Context (Titles)
+    Compare ALL nodes in the graph against each other using FAISS vectors.
+    This should be called ONCE per expansion with the complete node list.
     """
-    THRESHOLD = 0.62
-    MAX_EDGES_PER_NODE = 5
+    if not search_engine.can_reconstruct or len(all_node_ids) < 2:
+        return []
     
-    # 1. Deduplicate Inputs
-    candidate_ids = list(set([int(x) for x in candidate_ids]))
-    
-    # 2. Fetch Titles for Candidate IDs
-    cursor = search_engine.metadata_db.cursor()
-    id_to_title = {}
-    
-    if candidate_ids:
-        placeholders = ','.join('?' * len(candidate_ids))
+    try:
+        # 1. Get pre-computed embeddings from FAISS (O(n) disk read)
+        embeddings = []
+        valid_ids = []
+        
+        for nid in all_node_ids:
+            try:
+                vec = search_engine.index.reconstruct(int(nid))
+                embeddings.append(vec)
+                valid_ids.append(int(nid))
+            except Exception as e:
+                print(f"Warning: Could not reconstruct vector for ID {nid}: {e}")
+                continue
+        
+        if len(valid_ids) < 2:
+            return []
+        
+        embeddings = np.array(embeddings)
+        
+        # 2. Compute similarity matrix (O(n²) but unavoidable)
+        cosine_scores = util.cos_sim(embeddings, embeddings).cpu().numpy()
+        
+        # 3. Get titles for valid IDs
+        cursor = search_engine.metadata_db.cursor()
+        id_to_title = {}
+        placeholders = ','.join('?' * len(valid_ids))
         sql = f"SELECT article_id, title FROM articles WHERE article_id IN ({placeholders})"
-        cursor.execute(sql, candidate_ids)
+        cursor.execute(sql, valid_ids)
         for row in cursor.fetchall():
             id_to_title[row['article_id']] = row['title']
-
-    # Filter candidates that exist in DB
-    valid_cands_ids = [cid for cid in candidate_ids if cid in id_to_title]
-    if not valid_cands_ids:
-        return []
-
-    # 3. Prepare Text Lists
-    # List A: New Candidates (We will iterate over these to find connections)
-    cand_texts = [id_to_title[cid].replace('_', ' ') for cid in valid_cands_ids]
-    
-    # List B: Context Titles (The existing graph)
-    # We strip underscores to ensure good embeddings
-    clean_context_titles = [t.replace('_', ' ') for t in context_titles if t]
-    
-    # Target Pool = New Candidates + Existing Context
-    # We want new nodes to connect to OTHER new nodes AND existing nodes
-    # We track them by string to simplify the matrix logic
-    target_texts = cand_texts + clean_context_titles
-    
-    # remove duplicates in target_texts to save compute, but keep index mapping? 
-    # For simplicity in this "lite" version, we'll just embed all.
-    
-    if len(target_texts) < 2:
-        return []
-
-    edges = []
-
-    try:
-        # 4. Generate Embeddings
-        # Encode Candidates
-        cand_embeddings = search_engine.model.encode(cand_texts, convert_to_tensor=True, normalize_embeddings=True)
         
-        # Encode Targets (Candidates + Context)
-        # Note: In production, you might cache context embeddings, but for <2000 nodes this is fast on CPU
-        target_embeddings = search_engine.model.encode(target_texts, convert_to_tensor=True, normalize_embeddings=True)
-
-        # 5. Calculate Similarity Matrix
-        cosine_scores = util.cos_sim(cand_embeddings, target_embeddings)
-        scores_np = cosine_scores.cpu().numpy()
-
-        # 6. Extract Edges
-        # Iterate through candidates (rows)
-        for i, c_id in enumerate(valid_cands_ids):
-            c_title_clean = cand_texts[i]
-            candidate_edges = []
+        # 4. Extract top edges per node
+        edges = []
+        edge_set = set()  # Prevent duplicates (A->B and B->A)
+        
+        for i, node_id in enumerate(valid_ids):
+            # Get top K similar nodes (excluding self)
+            similarities = []
+            for j in range(len(valid_ids)):
+                if i != j:
+                    similarities.append((j, cosine_scores[i][j]))
             
-            # Iterate through all targets (columns)
-            for j, t_text in enumerate(target_texts):
-                # Skip self-loops (based on string equality)
-                if c_title_clean == t_text:
-                    continue
-                
-                score = float(scores_np[i][j])
-                
-                if score > THRESHOLD:
-                    # Determine source/target names
-                    # Source is always the new candidate (using DB title)
-                    source_title = id_to_title[c_id]
-                    
-                    # Target is either a fellow candidate or a context node
-                    # We use the text we encoded, but we need to be careful about formatting
-                    # The frontend normalizeNodeId handles spaces/underscores, 
-                    # so sending "Graph Theory" (spaced) is fine.
-                    target_title = t_text 
-                    
-                    candidate_edges.append({
-                        "source": source_title,
-                        "target": target_title,
-                        "score": score
-                    })
+            similarities.sort(key=lambda x: x[1], reverse=True)
             
-            # Sort by score and Limit
-            candidate_edges.sort(key=lambda x: x['score'], reverse=True)
-            edges.extend(candidate_edges[:MAX_EDGES_PER_NODE])
-
+            for j, score in similarities[:max_edges_per_node]:
+                if score > threshold:
+                    target_id = valid_ids[j]
+                    
+                    # Create canonical edge key (smaller ID first)
+                    edge_key = tuple(sorted([node_id, target_id]))
+                    
+                    if edge_key not in edge_set:
+                        edge_set.add(edge_key)
+                        edges.append({
+                            "source": id_to_title.get(node_id, ""),
+                            "target": id_to_title.get(target_id, ""),
+                            "score": float(score)
+                        })
+        
+        print(f"Generated {len(edges)} global cross-edges from {len(valid_ids)} nodes")
+        return edges
+        
     except Exception as e:
-        print(f"Error in global cross_edges: {e}")
+        import traceback
+        print(f"Global cross-edge error: {e}")
+        traceback.print_exc()
         return []
 
-    return edges
+
+def calculate_cross_edges(search_engine, candidate_ids, context_ids):
+    """
+    LEGACY FUNCTION - Kept for backwards compatibility.
+    Now just calls calculate_global_cross_edges with combined IDs.
+    """
+    # Combine candidates and context
+    all_ids = list(set(candidate_ids + context_ids))
+    return calculate_global_cross_edges(search_engine, all_ids, threshold=0.62, max_edges_per_node=5)
