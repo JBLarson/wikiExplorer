@@ -7,7 +7,6 @@ import type { WikiLink } from '../types';
 
 export function useNodeExpander() {
   const {
-    nodes,
     addNode,
     addEdge,
     setLoading,
@@ -18,7 +17,9 @@ export function useNodeExpander() {
     nodeId: string,
     onError: (error: string) => void
   ) => {
-    const node = nodes.find(n => n.id === nodeId);
+    // 1. Get FRESH state immediately
+    const state = useGraphStore.getState();
+    const node = state.nodes.find(n => n.id === nodeId);
     if (!node) return;
 
     setLoading(true);
@@ -29,30 +30,33 @@ export function useNodeExpander() {
       let crossEdgesToAdd: any[] = [];
 
       if (cache && cache.links.length > 0) {
-        // Use cached links (next batch of 7)
+        // Use cached links
         linksToAdd = cache.links.slice(0, 7);
         const remainingLinks = cache.links.slice(7);
 
-        // Update cache
         linkCache.set(nodeId, {
           links: remainingLinks,
           crossEdges: cache.crossEdges,
         });
 
         crossEdgesToAdd = cache.crossEdges;
-        console.log(`✓ Used cached links for ${node.label}. ${remainingLinks.length} links remaining in cache.`);
+        console.log(`✓ Used cached links for ${node.label}`);
 
       } else {
-        // No cache available - fetch new batch of 28 from backend
-        console.log(`🔍 Cache empty for ${node.label}, fetching new batch from backend...`);
+        console.log(`🔍 Fetching new batch for ${node.label} with GLOBAL context...`);
 
-        const existingNodeLabels = nodes.map(n => n.label);
-        const existingNodeIds = nodes.map(n => n.id);
+        // 2. Extract GLOBAL context (All nodes currently in graph)
+        const allNodes = useGraphStore.getState().nodes;
+        const existingNodeLabels = allNodes.map(n => n.label);
+        
+        // FIX: Send LABELS (Titles) not IDs. 
+        // Backend embeddings work best with "Graph Theory", not "graph_theory"
+        const allGraphLabels = allNodes.map(n => n.label); 
 
         const { links, crossEdges } = await fetchArticleLinks(
           node.label,
           existingNodeLabels,
-          existingNodeIds,
+          allGraphLabels, // <-- Sending Titles now
           28
         );
 
@@ -62,11 +66,9 @@ export function useNodeExpander() {
           return;
         }
 
-        // Use first 7, cache the rest
         linksToAdd = links.slice(0, 7);
         const linksToCache = links.slice(7);
 
-        // Update cache with new links
         linkCache.set(nodeId, {
           links: linksToCache,
           crossEdges: crossEdges,
@@ -75,16 +77,16 @@ export function useNodeExpander() {
         crossEdgesToAdd = crossEdges;
       }
 
-      // Filter out nodes that already exist
+      // Filter duplicates
+      const currentNodes = useGraphStore.getState().nodes; // Fresh check
       const nodesToAdd = linksToAdd.filter(link => {
         const linkNodeId = normalizeNodeId(link.title);
-        return !nodes.some(n => n.id === linkNodeId);
+        return !currentNodes.some(n => n.id === linkNodeId);
       });
 
-      // STEP 1: Add all nodes first
+      // ADD NODES
       nodesToAdd.forEach(link => {
         const linkNodeId = normalizeNodeId(link.title);
-        
         addNode({
           id: linkNodeId,
           label: link.title,
@@ -98,22 +100,21 @@ export function useNodeExpander() {
         });
       });
 
-      // STEP 2: Wait a tick for nodes to be registered, then add edges
+      // ADD EDGES (Async)
       setTimeout(() => {
-        const currentNodes = useGraphStore.getState().nodes;
-        const currentEdges = useGraphStore.getState().edges;
+        const latestNodes = useGraphStore.getState().nodes;
+        const latestEdges = useGraphStore.getState().edges;
 
-        // Add edges from parent to new children
+        // Parent -> Child edges
         nodesToAdd.forEach(link => {
           const linkNodeId = normalizeNodeId(link.title);
           
-          // Verify both nodes exist before adding edge
-          const sourceExists = currentNodes.some(n => n.id === nodeId);
-          const targetExists = currentNodes.some(n => n.id === linkNodeId);
+          const sourceExists = latestNodes.some(n => n.id === nodeId);
+          const targetExists = latestNodes.some(n => n.id === linkNodeId);
           
           if (sourceExists && targetExists) {
             const edgeId = `${nodeId}-${linkNodeId}`;
-            if (!currentEdges.some(e => e.id === edgeId)) {
+            if (!latestEdges.some(e => e.id === edgeId)) {
               addEdge({
                 id: edgeId,
                 source: nodeId,
@@ -121,25 +122,25 @@ export function useNodeExpander() {
                 score: link.score,
                 distance: calculateEdgeDistance(link.score),
                 strength: calculateEdgeDistance(link.score)
-
               });
             }
           }
         });
 
-        // Add cross edges (connections between existing nodes)
+        // Smart Cross Edges
         if (crossEdgesToAdd && crossEdgesToAdd.length > 0) {
           crossEdgesToAdd.forEach(edge => {
             const sourceId = normalizeNodeId(edge.source);
             const targetId = normalizeNodeId(edge.target);
             
-            // Verify both nodes exist before adding cross edge
-            const sourceExists = currentNodes.some(n => n.id === sourceId);
-            const targetExists = currentNodes.some(n => n.id === targetId);
+            const sourceExists = latestNodes.some(n => n.id === sourceId);
+            const targetExists = latestNodes.some(n => n.id === targetId);
             
             if (sourceExists && targetExists) {
               const edgeId = `cross-${sourceId}-${targetId}`;
-              if (!currentEdges.some(e => e.id === edgeId)) {
+              const reverseId = `cross-${targetId}-${sourceId}`;
+              
+              if (!latestEdges.some(e => e.id === edgeId || e.id === reverseId)) {
                 addEdge({
                   id: edgeId,
                   source: sourceId,
@@ -152,7 +153,6 @@ export function useNodeExpander() {
           });
         }
 
-        // Increment expansion count after everything is added
         incrementExpansionCount(nodeId);
       }, 50);
 
@@ -162,7 +162,7 @@ export function useNodeExpander() {
     } finally {
       setLoading(false);
     }
-  }, [nodes, addNode, addEdge, setLoading, incrementExpansionCount]);
+  }, [addNode, addEdge, setLoading, incrementExpansionCount]);
 
   return { expandNode };
 }

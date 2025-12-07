@@ -22,11 +22,12 @@ interface NodeWithStats extends GraphNode {
   incomingEdges: number;
   outgoingEdges: number;
   neighborConnectivity: number;
+  graphConnectivity: number; // New metric
   clusteringCoeff: number;
 }
 
 // --- Types ---
-type SortKey = 'label' | 'depth' | 'edgeCount' | 'outgoingEdges' | 'incomingEdges' | 'neighborConnectivity' | 'expansionCount' | 'clusteringCoeff';
+type SortKey = 'label' | 'depth' | 'edgeCount' | 'outgoingEdges' | 'incomingEdges' | 'neighborConnectivity' | 'graphConnectivity' | 'expansionCount' | 'clusteringCoeff';
 type ColumnType = 'text' | 'number' | 'category';
 
 interface SortConfig {
@@ -86,11 +87,15 @@ export function GraphStatsModal({ nodes, edges, onClose, onNodeClick }: GraphSta
       edgeExistenceSet.add(`${edge.source}|${edge.target}`);
     });
 
+    const totalNodes = nodes.length;
+
     return nodes.map(node => {
       const myEdges = nodeEdgeMap.get(node.id) || [];
       const outgoing = myEdges.filter(e => e.source === node.id).length;
       const incoming = myEdges.filter(e => e.target === node.id).length;
+      const totalDegree = outgoing + incoming;
 
+      // 1. Neighbor Connectivity (Sum of neighbor degrees)
       const neighborIds = new Set<string>();
       myEdges.forEach(edge => {
         const neighborId = edge.source === node.id ? edge.target : edge.source;
@@ -103,14 +108,19 @@ export function GraphStatsModal({ nodes, edges, onClose, onNodeClick }: GraphSta
         if (nEdges) neighborConnectivity += nEdges.length;
       });
 
-      // Clustering Coefficient Logic
+      // 2. Graph Connectivity % (Degree Centrality relative to graph size)
+      // Avoid division by zero if it's the only node
+      const maxPossibleConnections = totalNodes > 1 ? totalNodes - 1 : 1;
+      const graphConnectivity = parseFloat(((totalDegree / maxPossibleConnections) * 100).toFixed(2));
+
+      // 3. Clustering Coefficient Logic
       const neighbors = Array.from(neighborIds);
       const k = neighbors.length;
       let actualNeighborConnections = 0;
       let clusteringCoeff = 0;
-      const maxPossibleConnections = (k * (k - 1)) / 2;
+      const possibleNeighborPairs = (k * (k - 1)) / 2;
 
-      if (maxPossibleConnections > 0) {
+      if (possibleNeighborPairs > 0) {
         for (let i = 0; i < k; i++) {
           for (let j = i + 1; j < k; j++) {
             const n1 = neighbors[i];
@@ -120,15 +130,16 @@ export function GraphStatsModal({ nodes, edges, onClose, onNodeClick }: GraphSta
             }
           }
         }
-        clusteringCoeff = Math.round((actualNeighborConnections / maxPossibleConnections) * 100);
+        clusteringCoeff = Math.round((actualNeighborConnections / possibleNeighborPairs) * 100);
       }
       
       return {
         ...node,
-        edgeCount: outgoing + incoming,
+        edgeCount: totalDegree,
         outgoingEdges: outgoing,
         incomingEdges: incoming,
         neighborConnectivity,
+        graphConnectivity,
         clusteringCoeff
       };
     });
@@ -229,15 +240,17 @@ export function GraphStatsModal({ nodes, edges, onClose, onNodeClick }: GraphSta
   const ColumnHeader = ({ 
     label, 
     id, 
-    type,
+    type, 
     align = 'center', 
-    title 
+    title,
+    minWidth
   }: { 
     label: string, 
     id: SortKey, 
-    type: ColumnType,
+    type: ColumnType, 
     align?: 'left' | 'center' | 'right', 
-    title?: string 
+    title?: string,
+    minWidth?: string
   }) => {
     const sortIndex = sortHistory.findIndex(s => s.key === id);
     const isSorted = sortIndex !== -1;
@@ -262,7 +275,7 @@ export function GraphStatsModal({ nodes, edges, onClose, onNodeClick }: GraphSta
     }, []);
 
     return (
-      <th className={`relative p-0 z-${dropdownOpen ? '50' : '10'}`}>
+      <th className={`relative p-0 z-${dropdownOpen ? '50' : '10'}`} style={{ minWidth }}>
         <div className={`
           flex items-center gap-2 p-4
           ${align === 'center' ? 'justify-center' : align === 'right' ? 'justify-end' : 'justify-start'}
@@ -272,7 +285,7 @@ export function GraphStatsModal({ nodes, edges, onClose, onNodeClick }: GraphSta
         `}>
           {/* Label & Sort Click Area - Explicitly select-none to prevent highlighting while sorting */}
           <div 
-            className="flex items-center gap-1 cursor-pointer select-text"
+            className="flex items-center gap-1 cursor-pointer select-text whitespace-nowrap"
             onClick={() => handleSort(id)}
             title={title || `Sort by ${label}`}
           >
@@ -406,14 +419,14 @@ export function GraphStatsModal({ nodes, edges, onClose, onNodeClick }: GraphSta
   const avgEdgesPerNode = nodes.length > 0 ? (totalEdges * 2 / nodes.length).toFixed(1) : '0';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-6 pointer-events-auto bg-black/60 backdrop-blur-sm">
-      {/* ADDED: select-text
-        Overrides the global select-none from App.tsx so you can copy table data 
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 md:p-6 pointer-events-auto bg-black/60 backdrop-blur-sm">
+      {/* UPDATED: Width logic to auto-size based on content but max out at screen width.
+         select-text enabled for copying data.
       */}
-      <div className="relative w-full max-w-6xl h-[90vh] bg-abyss-surface border border-abyss-border rounded-2xl shadow-2xl overflow-hidden animate-fade-in flex flex-col select-text">
+      <div className="relative w-auto max-w-[95vw] h-[90vh] bg-abyss-surface border border-abyss-border rounded-2xl shadow-2xl overflow-hidden animate-fade-in flex flex-col select-text">
         
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-abyss-border bg-abyss select-none">
+        <div className="flex items-center justify-between p-6 border-b border-abyss-border bg-abyss select-none flex-shrink-0">
           <div>
             <h2 className="text-2xl font-bold text-white mb-1">Graph Statistics</h2>
             <div className="flex items-center gap-3 text-sm text-gray-400">
@@ -426,24 +439,25 @@ export function GraphStatsModal({ nodes, edges, onClose, onNodeClick }: GraphSta
           </div>
           <button
             onClick={onClose}
-            className="flex-shrink-0 p-2 text-gray-400 hover:text-white hover:bg-abyss-hover rounded-lg transition-all duration-200"
+            className="flex-shrink-0 p-2 text-gray-400 hover:text-white hover:bg-abyss-hover rounded-lg transition-all duration-200 ml-4"
           >
             <XMarkIcon className="w-6 h-6" />
           </button>
         </div>
 
-        {/* Table */}
+        {/* Table Container - Horizontal Scroll Enabled */}
         <div className="flex-1 overflow-auto custom-scrollbar">
-          <table className="w-full relative">
+          <table className="w-full relative border-collapse">
             <thead className="sticky top-0 bg-abyss border-b border-abyss-border shadow-lg z-20">
               <tr>
-                <th className="text-left p-4 text-xs font-semibold text-gray-400 uppercase tracking-wider w-16 select-none">#</th>
-                <ColumnHeader label="Article" id="label" type="text" align="left" />
+                <th className="text-left p-4 text-xs font-semibold text-gray-400 uppercase tracking-wider w-16 select-none bg-abyss">#</th>
+                <ColumnHeader label="Article" id="label" type="text" align="left" minWidth="200px" />
                 <ColumnHeader label="Depth" id="depth" type="category" title="Distance from root" />
                 <ColumnHeader label="Edges" id="edgeCount" type="number" />
                 <ColumnHeader label="Outgoing" id="outgoingEdges" type="number" />
                 <ColumnHeader label="Incoming" id="incomingEdges" type="number" />
-                <ColumnHeader label="Connectivity" id="neighborConnectivity" type="number" title="Sum of neighbor degrees" />
+                <ColumnHeader label="Neighbor Conn" id="neighborConnectivity" type="number" title="Sum of neighbor degrees" minWidth="120px" />
+                <ColumnHeader label="Graph Conn %" id="graphConnectivity" type="number" title="% of all graph nodes connected to this node" minWidth="120px" />
                 <ColumnHeader label="Cluster %" id="clusteringCoeff" type="number" title="% Actual vs Possible edges between neighbors" />
                 <ColumnHeader label="Expansions" id="expansionCount" type="number" />
               </tr>
@@ -479,6 +493,14 @@ export function GraphStatsModal({ nodes, edges, onClose, onNodeClick }: GraphSta
                   <td className="p-4 text-center text-emerald-400 font-mono text-sm font-medium">{node.neighborConnectivity}</td>
                   <td className="p-4 text-center font-mono text-sm font-medium">
                     <span className={`${
+                      node.graphConnectivity > 10 ? 'text-purple-400' :
+                      node.graphConnectivity > 5 ? 'text-brand-glow' : 'text-gray-500'
+                    }`}>
+                      {node.graphConnectivity}%
+                    </span>
+                  </td>
+                  <td className="p-4 text-center font-mono text-sm font-medium">
+                    <span className={`${
                       node.clusteringCoeff > 50 ? 'text-purple-400' : 
                       node.clusteringCoeff > 25 ? 'text-blue-400' : 'text-gray-500'
                     }`}>
@@ -490,7 +512,7 @@ export function GraphStatsModal({ nodes, edges, onClose, onNodeClick }: GraphSta
               ))}
               {filteredAndSortedNodes.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="p-8 text-center text-gray-500">
+                  <td colSpan={10} className="p-8 text-center text-gray-500">
                     No nodes match the current filters.
                   </td>
                 </tr>
@@ -500,9 +522,9 @@ export function GraphStatsModal({ nodes, edges, onClose, onNodeClick }: GraphSta
         </div>
 
         {/* Footer */}
-        <div className="p-4 border-t border-abyss-border bg-abyss flex items-center justify-between text-xs text-gray-500 select-none">
+        <div className="p-4 border-t border-abyss-border bg-abyss flex items-center justify-between text-xs text-gray-500 select-none flex-shrink-0">
           <div className="flex gap-4">
-            <span>Shift+Click header for multi-sort (auto-enabled)</span>
+            <span>Shift+Click header for multi-sort</span>
             <span>Click funnel icon to filter</span>
           </div>
           <span>Press ESC to close</span>
