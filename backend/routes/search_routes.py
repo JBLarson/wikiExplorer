@@ -27,7 +27,7 @@ def get_related():
     data = request.json
     query = data.get('query', '')
     
-    # FIX: Accept node IDs instead of titles
+    # Context IDs (can be string titles like 'graph_theory' or integer IDs)
     context_node_ids = data.get('context', [])
     
     k_results = int(data.get('k', search_engine.config.RESULTS_TO_RETURN))
@@ -145,37 +145,48 @@ def get_related():
     new_result_ids = [r['id'] for r in top_results]
     cross_edges = []
     
-    if search_engine.can_reconstruct:
+    if search_engine.can_reconstruct and len(new_result_ids) > 0:
         try:
-            # Convert context_node_ids to integers
+            # OPTIMIZED CONTEXT RESOLUTION (Batch Query)
             context_ids_int = []
+            
+            # Split context into integers (already IDs) and strings (titles to lookup)
+            pending_lookups = []
+            
             for ctx_id in context_node_ids:
-                try:
-                    # Handle both integer IDs and title strings
-                    if isinstance(ctx_id, str):
-                        # Try to look up by title
-                        cursor.execute("SELECT article_id FROM articles WHERE title = ? OR title = ? OR lookup_title = ?", 
-                                     (ctx_id, ctx_id.replace('_', ' '), ctx_id.lower()))
-                        row = cursor.fetchone()
-                        if row:
-                            context_ids_int.append(int(row['article_id']))
-                    else:
+                if isinstance(ctx_id, int):
+                    context_ids_int.append(ctx_id)
+                elif isinstance(ctx_id, str):
+                    if ctx_id.isdigit():
                         context_ids_int.append(int(ctx_id))
-                except Exception as e:
-                    print(f"Warning: Could not convert context ID {ctx_id}: {e}")
-                    continue
+                    else:
+                        # Clean up the ID string to match lookup_title format
+                        # e.g., "Graph_theory" -> "graph theory"
+                        clean_title = ctx_id.replace('_', ' ').lower()
+                        pending_lookups.append(clean_title)
             
-            # Combine existing graph nodes + new results
-            all_node_ids = list(set(context_ids_int + new_result_ids))
+            # Perform a SINGLE batch lookup for all string titles
+            if pending_lookups:
+                print(f"DEBUG: Batch resolving {len(pending_lookups)} context titles...")
+                placeholders = ','.join('?' * len(pending_lookups))
+                sql = f"SELECT article_id FROM articles WHERE lookup_title IN ({placeholders})"
+                cursor.execute(sql, pending_lookups)
+                rows = cursor.fetchall()
+                for row in rows:
+                    context_ids_int.append(int(row['article_id']))
+                print(f"DEBUG: Resolved {len(rows)} context IDs from DB.")
+
+            # Filter duplicates
+            existing_ids_final = list(set(context_ids_int))
             
-            if len(all_node_ids) > 1:
-                print(f"Computing global cross-edges for {len(all_node_ids)} total nodes...")
-                cross_edges = calculate_global_cross_edges(
-                    search_engine, 
-                    all_node_ids,
-                    threshold=0.62,
-                    max_edges_per_node=5
-                )
+            print(f"Computing optimized cross-edges (New: {len(new_result_ids)}, Context: {len(existing_ids_final)})...")
+            
+            cross_edges = calculate_global_cross_edges(
+                search_engine, 
+                new_node_ids=new_result_ids, 
+                existing_node_ids=existing_ids_final,
+                threshold=0.62
+            )
         except Exception as e:
             import traceback
             traceback.print_exc()
@@ -189,6 +200,9 @@ def get_related():
                 ip_address = ip_address.split(',')[0].strip()
             
             user_agent = request.headers.get('User-Agent', 'Unknown')
+            
+            # Ensure session is clean before starting analytics transaction
+            db.session.rollback() 
             
             existing = PublicSearch.query.filter_by(search_query=query).first()
             if existing:

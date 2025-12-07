@@ -1,88 +1,222 @@
 import numpy as np
 from sentence_transformers import util
+from models import db, CachedEdge
 
-def calculate_global_cross_edges(search_engine, all_node_ids, threshold=0.62, max_edges_per_node=5):
+def calculate_global_cross_edges(search_engine, new_node_ids, existing_node_ids, threshold=0.62, max_edges_per_node=5):
     """
-    Compare ALL nodes in the graph against each other using FAISS vectors.
-    This should be called ONCE per expansion with the complete node list.
+    Optimized Hybrid Strategy:
+    1. DB Lookup: Check if edges for 'new_node_ids' already exist.
+    2. Smart Filter: Remove nodes found in cache from the compute list.
+    3. Vector Calc: Compute ONLY for the cache misses.
+    4. Persist: Save new edges.
     """
-    if not search_engine.can_reconstruct or len(all_node_ids) < 2:
+    if not new_node_ids:
         return []
+
+    print(f"DEBUG: Starting calc for {len(new_node_ids)} new nodes...")
+
+    # 1. Normalize Inputs
+    new_ids_set = set(int(nid) for nid in new_node_ids)
+    existing_ids_set = set(int(nid) for nid in existing_node_ids if int(nid) not in new_ids_set)
     
+    combined_edges = {} 
+    
+    # Track which nodes have been sufficiently resolved by the cache
+    resolved_nodes = set()
+
+    # ---------------------------------------------------------
+    # STEP A: Query Cache
+    # ---------------------------------------------------------
     try:
-        # 1. Get pre-computed embeddings from FAISS (O(n) disk read)
-        embeddings = []
-        valid_ids = []
-        
-        for nid in all_node_ids:
-            try:
-                vec = search_engine.index.reconstruct(int(nid))
-                embeddings.append(vec)
-                valid_ids.append(int(nid))
-            except Exception as e:
-                print(f"Warning: Could not reconstruct vector for ID {nid}: {e}")
-                continue
-        
-        if len(valid_ids) < 2:
-            return []
-        
-        embeddings = np.array(embeddings)
-        
-        # 2. Compute similarity matrix (O(n²) but unavoidable)
-        cosine_scores = util.cos_sim(embeddings, embeddings).cpu().numpy()
-        
-        # 3. Get titles for valid IDs
+        if new_ids_set:
+            new_ids_list = list(new_ids_set)
+            print("DEBUG: Querying DB cache...")
+            
+            # Get edges involving NEW nodes
+            cached_results = CachedEdge.query.filter(
+                (CachedEdge.source_id.in_(new_ids_list)) | 
+                (CachedEdge.target_id.in_(new_ids_list))
+            ).all()
+
+            for row in cached_results:
+                # Determine which node is the "other" one
+                if row.source_id in new_ids_set:
+                    node_id = row.source_id
+                    other_id = row.target_id
+                else:
+                    node_id = row.target_id
+                    other_id = row.source_id
+                
+                # Check if this edge is relevant to our current graph context
+                is_relevant = (other_id in existing_ids_set or other_id in new_ids_set)
+                
+                if is_relevant:
+                    edge_key = tuple(sorted([row.source_id, row.target_id]))
+                    combined_edges[edge_key] = row.score
+                    
+                    # Mark this node as having at least one edge, so maybe we don't need to re-compute it
+                    # (You can make this stricter, e.g., requiring > 2 edges)
+                    resolved_nodes.add(node_id)
+
+            print(f"DEBUG: Found {len(combined_edges)} edges in DB cache. Resolved {len(resolved_nodes)}/{len(new_ids_set)} nodes.")
+            
+    except Exception as e:
+        print(f"Warning: DB Cache lookup failed: {e}")
+
+    # ---------------------------------------------------------
+    # STEP B: Compute Missing (Smart Skip)
+    # ---------------------------------------------------------
+    # Filter out nodes that were already resolved in the cache
+    nodes_to_compute = list(new_ids_set - resolved_nodes)
+    
+    if search_engine.can_reconstruct and nodes_to_compute:
+        try:
+            print(f"DEBUG: Computing vectors for {len(nodes_to_compute)} MISSING nodes...")
+            
+            def get_vectors(node_ids):
+                vecs = []
+                valid = []
+                for nid in node_ids:
+                    try:
+                        v = search_engine.index.reconstruct(nid)
+                        vecs.append(v)
+                        valid.append(nid)
+                    except:
+                        continue
+                if not vecs: return None, []
+                return np.array(vecs), valid
+
+            # Fetch vectors ONLY for cache misses
+            new_vecs, new_valid = get_vectors(nodes_to_compute)
+            
+            # For context, we still need vectors of (resolved_new + existing) to compare against
+            # But we only iterate the ROWS of the missing nodes
+            context_pool = list(existing_ids_set.union(resolved_nodes))
+            context_vecs = None
+            context_valid = []
+            
+            if context_pool:
+                context_vecs, context_valid = get_vectors(context_pool)
+
+            edges_to_save = []
+
+            # Matrix Processor
+            def extract_edges(source_ids, target_ids, matrix):
+                rows, cols = matrix.shape
+                local_new_edges = 0
+                
+                for i in range(rows):
+                    source_id = source_ids[i]
+                    scores = matrix[i]
+                    
+                    valid_indices = np.where(scores > threshold)[0]
+                    if len(valid_indices) == 0: continue
+
+                    valid_scores = scores[valid_indices]
+                    sorted_order = np.argsort(valid_scores)[::-1]
+                    top_indices = valid_indices[sorted_order]
+
+                    count = 0
+                    for idx in top_indices:
+                        if count >= max_edges_per_node: break
+                        target_id = target_ids[idx]
+                        if source_id == target_id: continue
+
+                        s_id, t_id = sorted([source_id, target_id])
+                        edge_key = (s_id, t_id)
+                        score_val = float(scores[idx])
+
+                        if edge_key not in combined_edges:
+                            combined_edges[edge_key] = score_val
+                            edges_to_save.append({
+                                'source_id': int(s_id),
+                                'target_id': int(t_id),
+                                'score': score_val
+                            })
+                            local_new_edges += 1
+                        count += 1
+                return local_new_edges
+
+            # 1. Missing vs Missing (Internal)
+            if new_vecs is not None and len(new_valid) > 1:
+                mat = util.cos_sim(new_vecs, new_vecs).cpu().numpy()
+                extract_edges(new_valid, new_valid, mat)
+
+            # 2. Missing vs Context (Existing + Resolved)
+            if new_vecs is not None and context_vecs is not None:
+                mat = util.cos_sim(new_vecs, context_vecs).cpu().numpy()
+                extract_edges(new_valid, context_valid, mat)
+
+            # ---------------------------------------------------------
+            # STEP C: Persist
+            # ---------------------------------------------------------
+            if edges_to_save:
+                print(f"DEBUG: Saving {len(edges_to_save)} newly computed edges to DB...")
+                try:
+                    for edge_data in edges_to_save:
+                        exists = CachedEdge.query.filter_by(
+                            source_id=edge_data['source_id'], 
+                            target_id=edge_data['target_id']
+                        ).first()
+                        
+                        if not exists:
+                            new_edge = CachedEdge(
+                                source_id=edge_data['source_id'],
+                                target_id=edge_data['target_id'],
+                                score=edge_data['score']
+                            )
+                            db.session.add(new_edge)
+                    
+                    db.session.commit()
+                    print(f"DEBUG: Committed edges.")
+                except Exception as e:
+                    db.session.rollback()
+                    print(f"Error saving edges: {e}")
+            else:
+                print("DEBUG: No new edges to save.")
+
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            print(f"Computation error: {e}")
+    else:
+        print("DEBUG: All nodes resolved via cache. Skipping vector computation.")
+
+    # ---------------------------------------------------------
+    # STEP D: Resolve Titles
+    # ---------------------------------------------------------
+    final_output = []
+    needed_ids = set()
+    for (src, tgt) in combined_edges.keys():
+        needed_ids.add(src)
+        needed_ids.add(tgt)
+    
+    if not needed_ids:
+        return []
+
+    try:
         cursor = search_engine.metadata_db.cursor()
         id_to_title = {}
-        placeholders = ','.join('?' * len(valid_ids))
+        
+        id_list = list(needed_ids)
+        placeholders = ','.join('?' * len(id_list))
         sql = f"SELECT article_id, title FROM articles WHERE article_id IN ({placeholders})"
-        cursor.execute(sql, valid_ids)
+        cursor.execute(sql, id_list)
+        
         for row in cursor.fetchall():
             id_to_title[row['article_id']] = row['title']
-        
-        # 4. Extract top edges per node
-        edges = []
-        edge_set = set()  # Prevent duplicates (A->B and B->A)
-        
-        for i, node_id in enumerate(valid_ids):
-            # Get top K similar nodes (excluding self)
-            similarities = []
-            for j in range(len(valid_ids)):
-                if i != j:
-                    similarities.append((j, cosine_scores[i][j]))
-            
-            similarities.sort(key=lambda x: x[1], reverse=True)
-            
-            for j, score in similarities[:max_edges_per_node]:
-                if score > threshold:
-                    target_id = valid_ids[j]
-                    
-                    # Create canonical edge key (smaller ID first)
-                    edge_key = tuple(sorted([node_id, target_id]))
-                    
-                    if edge_key not in edge_set:
-                        edge_set.add(edge_key)
-                        edges.append({
-                            "source": id_to_title.get(node_id, ""),
-                            "target": id_to_title.get(target_id, ""),
-                            "score": float(score)
-                        })
-        
-        print(f"Generated {len(edges)} global cross-edges from {len(valid_ids)} nodes")
-        return edges
-        
+
+        for (src, tgt), score in combined_edges.items():
+            if src in id_to_title and tgt in id_to_title:
+                final_output.append({
+                    "source": id_to_title[src],
+                    "target": id_to_title[tgt],
+                    "score": score
+                })
+                
+        print(f"Generated {len(final_output)} total edges")
+        return final_output
+
     except Exception as e:
-        import traceback
-        print(f"Global cross-edge error: {e}")
-        traceback.print_exc()
+        print(f"Title resolution error: {e}")
         return []
-
-
-def calculate_cross_edges(search_engine, candidate_ids, context_ids):
-    """
-    LEGACY FUNCTION - Kept for backwards compatibility.
-    Now just calls calculate_global_cross_edges with combined IDs.
-    """
-    # Combine candidates and context
-    all_ids = list(set(candidate_ids + context_ids))
-    return calculate_global_cross_edges(search_engine, all_ids, threshold=0.62, max_edges_per_node=5)

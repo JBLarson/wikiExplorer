@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
+import os
+
+# --- CRITICAL STABILITY FIX ---
+# Prevent NumPy/PyTorch from using OpenMP threads which causes hangs in Flask
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["BcTOKENIZERS_PARALLELISM"] = "false"
+
 from flask import Flask
 from flask_cors import CORS
 from flask_migrate import Migrate
 from dotenv import load_dotenv
 import platform
-import os
 
 from models import db
 from config import Config
@@ -12,14 +19,12 @@ from core.search_engine import SearchEngine
 from routes.search_routes import search_bp
 from routes.public_search_routes import public_search_bp
 from routes.health_routes import health_bp
-from routes.cluster_routes import cluster_bp
+#from routes.cluster_routes import cluster_bp
 
 load_dotenv()
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 app = Flask(__name__)
 app.config.from_object(Config)
-
 
 # Database configuration
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL')
@@ -29,11 +34,9 @@ app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
     'pool_recycle': 300,
 }
 
-
 # Initialize database
 db.init_app(app)
 migrate = Migrate(app, db)
-
 
 with app.app_context():
     db.create_all()
@@ -59,13 +62,15 @@ app.search_engine = search_engine
 app.register_blueprint(search_bp, url_prefix='/api')
 app.register_blueprint(public_search_bp, url_prefix='/api')
 app.register_blueprint(health_bp, url_prefix='/api')
-app.register_blueprint(cluster_bp, url_prefix='/api')
+#app.register_blueprint(cluster_bp, url_prefix='/api')
 
+@app.teardown_appcontext
+def shutdown_session(exception=None):
+    db.session.remove()
 
 if __name__ == '__main__':
     is_dev = platform.system() == "Darwin"
     if is_dev:  app.run(port=5001, debug=True, threaded=True)
-
     else:    
         app.run(
             host='0.0.0.0',
