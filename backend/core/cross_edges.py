@@ -30,7 +30,6 @@ def calculate_global_cross_edges(search_engine, new_node_ids, existing_node_ids,
     try:
         if new_ids_set:
             new_ids_list = list(new_ids_set)
-            print("DEBUG: Querying DB cache...")
             
             # Get edges involving NEW nodes
             cached_results = CachedEdge.query.filter(
@@ -168,13 +167,11 @@ def calculate_global_cross_edges(search_engine, new_node_ids, existing_node_ids,
                             db.session.add(new_edge)
                     
                     db.session.commit()
-                    print(f"DEBUG: Committed edges.")
                 except Exception as e:
                     db.session.rollback()
                     print(f"Error saving edges: {e}")
             else:
-                print("DEBUG: No new edges to save.")
-
+                pass
         except Exception as e:
             import traceback
             traceback.print_exc()
