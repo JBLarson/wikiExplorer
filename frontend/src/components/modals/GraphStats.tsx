@@ -1,10 +1,12 @@
-// frontend/src/components/modals/GraphStats.tsx
 import { 
   XMarkIcon, 
   ChevronUpIcon, 
   ChevronDownIcon, 
   FunnelIcon,
-  TrashIcon
+  TrashIcon,
+  ArrowDownTrayIcon,
+  ClipboardDocumentIcon,
+  CheckIcon
 } from '@heroicons/react/24/outline';
 import { FunnelIcon as FunnelIconSolid } from '@heroicons/react/24/solid';
 import { useMemo, useState, useEffect, useRef } from 'react';
@@ -22,11 +24,10 @@ interface NodeWithStats extends GraphNode {
   incomingEdges: number;
   outgoingEdges: number;
   neighborConnectivity: number;
-  graphConnectivity: number; // New metric
+  graphConnectivity: number;
   clusteringCoeff: number;
 }
 
-// --- Types ---
 type SortKey = 'label' | 'depth' | 'edgeCount' | 'outgoingEdges' | 'incomingEdges' | 'neighborConnectivity' | 'graphConnectivity' | 'expansionCount' | 'clusteringCoeff';
 type ColumnType = 'text' | 'number' | 'category';
 
@@ -39,17 +40,14 @@ interface FilterState {
   min?: number;
   max?: number;
   search?: string;
-  selectedCategories?: number[]; // For depth
+  selectedCategories?: number[];
 }
 
-// --- Persistence Key ---
 const STORAGE_KEY = 'wikiExplorer_stats_config';
 
 export function GraphStatsModal({ nodes, edges, onClose, onNodeClick }: GraphStatsModalProps) {
   
   // --- 1. State Management ---
-  
-  // Load initial state from session storage
   const loadInitialState = () => {
     try {
       const saved = sessionStorage.getItem(STORAGE_KEY);
@@ -69,13 +67,13 @@ export function GraphStatsModal({ nodes, edges, onClose, onNodeClick }: GraphSta
   const [sortHistory, setSortHistory] = useState<SortConfig[]>(initialState.sortHistory);
   const [filters, setFilters] = useState<Record<string, FilterState>>(initialState.filters);
   const [activeFilterDropdown, setActiveFilterDropdown] = useState<string | null>(null);
+  const [copyFeedback, setCopyFeedback] = useState(false);
 
-  // Persist state changes
   useEffect(() => {
     sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ sortHistory, filters }));
   }, [sortHistory, filters]);
 
-  // --- 2. Data Processing (Stats Calculation) ---
+  // --- 2. Data Processing ---
   const nodesWithStats = useMemo(() => {
     const nodeEdgeMap = new Map<string, GraphEdge[]>();
     nodes.forEach(node => nodeEdgeMap.set(node.id, []));
@@ -95,7 +93,7 @@ export function GraphStatsModal({ nodes, edges, onClose, onNodeClick }: GraphSta
       const incoming = myEdges.filter(e => e.target === node.id).length;
       const totalDegree = outgoing + incoming;
 
-      // 1. Neighbor Connectivity (Sum of neighbor degrees)
+      // Neighbor Connectivity
       const neighborIds = new Set<string>();
       myEdges.forEach(edge => {
         const neighborId = edge.source === node.id ? edge.target : edge.source;
@@ -108,12 +106,11 @@ export function GraphStatsModal({ nodes, edges, onClose, onNodeClick }: GraphSta
         if (nEdges) neighborConnectivity += nEdges.length;
       });
 
-      // 2. Graph Connectivity % (Degree Centrality relative to graph size)
-      // Avoid division by zero if it's the only node
+      // Graph Connectivity %
       const maxPossibleConnections = totalNodes > 1 ? totalNodes - 1 : 1;
       const graphConnectivity = parseFloat(((totalDegree / maxPossibleConnections) * 100).toFixed(2));
 
-      // 3. Clustering Coefficient Logic
+      // Clustering Coefficient
       const neighbors = Array.from(neighborIds);
       const k = neighbors.length;
       let actualNeighborConnections = 0;
@@ -145,7 +142,7 @@ export function GraphStatsModal({ nodes, edges, onClose, onNodeClick }: GraphSta
     });
   }, [nodes, edges]);
 
-  // --- 3. Filtering Logic ---
+  // --- 3. Filtering & Sorting ---
   const filteredAndSortedNodes = useMemo(() => {
     let result = [...nodesWithStats];
 
@@ -154,18 +151,15 @@ export function GraphStatsModal({ nodes, edges, onClose, onNodeClick }: GraphSta
       result = result.filter(node => {
         const val = node[key as keyof NodeWithStats];
 
-        // Number Range
         if (typeof val === 'number') {
           if (filter.min !== undefined && val < filter.min) return false;
           if (filter.max !== undefined && val > filter.max) return false;
         }
 
-        // Text Search
         if (typeof val === 'string' && filter.search) {
           if (!val.toLowerCase().includes(filter.search.toLowerCase())) return false;
         }
 
-        // Category (Depth)
         if (key === 'depth' && filter.selectedCategories) {
           if (!filter.selectedCategories.includes(node.depth)) return false;
         }
@@ -174,7 +168,7 @@ export function GraphStatsModal({ nodes, edges, onClose, onNodeClick }: GraphSta
       });
     });
 
-    // Apply Multi-Level Stable Sort
+    // Apply Sort
     [...sortHistory].reverse().forEach(config => {
       result.sort((a, b) => {
         const valA = a[config.key];
@@ -195,7 +189,48 @@ export function GraphStatsModal({ nodes, edges, onClose, onNodeClick }: GraphSta
     return result;
   }, [nodesWithStats, filters, sortHistory]);
 
-  // --- 4. Handlers ---
+  // --- 4. Export Functions ---
+
+  const handleExportJSON = () => {
+    const dataStr = JSON.stringify(filteredAndSortedNodes, null, 2);
+    const blob = new Blob([dataStr], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `graph_stats_export_${Date.now()}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleCopyToClipboard = async () => {
+    // Create TSV format (Excel friendly)
+    const headers = ['Article', 'Depth', 'Edges', 'Outgoing', 'Incoming', 'Neighbor Conn', 'Graph Conn %', 'Cluster %', 'Expansions'];
+    const rows = filteredAndSortedNodes.map(n => [
+      n.label,
+      n.depth,
+      n.edgeCount,
+      n.outgoingEdges,
+      n.incomingEdges,
+      n.neighborConnectivity,
+      n.graphConnectivity,
+      n.clusteringCoeff,
+      n.expansionCount
+    ].join('\t'));
+    
+    const textData = [headers.join('\t'), ...rows].join('\n');
+
+    try {
+      await navigator.clipboard.writeText(textData);
+      setCopyFeedback(true);
+      setTimeout(() => setCopyFeedback(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy', err);
+    }
+  };
+
+  // --- 5. Handlers ---
 
   const handleSort = (key: SortKey) => {
     setSortHistory(prev => {
@@ -219,10 +254,9 @@ export function GraphStatsModal({ nodes, edges, onClose, onNodeClick }: GraphSta
       const updated = { ...current, ...updates };
       
       if (updated.min === undefined && updated.max === undefined && !updated.search && !updated.selectedCategories) {
-        const { [key]: _, ...rest } = prev; // eslint-disable-line
+        const { [key]: _, ...rest } = prev;
         return rest;
       }
-      
       return { ...prev, [key]: updated };
     });
   };
@@ -235,22 +269,12 @@ export function GraphStatsModal({ nodes, edges, onClose, onNodeClick }: GraphSta
     setActiveFilterDropdown(null);
   };
 
-  // --- 5. Helper Components ---
+  // --- 6. Helper Components ---
 
   const ColumnHeader = ({ 
-    label, 
-    id, 
-    type, 
-    align = 'center', 
-    title,
-    minWidth
+    label, id, type, align = 'center', title, minWidth
   }: { 
-    label: string, 
-    id: SortKey, 
-    type: ColumnType, 
-    align?: 'left' | 'center' | 'right', 
-    title?: string,
-    minWidth?: string
+    label: string, id: SortKey, type: ColumnType, align?: 'left' | 'center' | 'right', title?: string, minWidth?: string
   }) => {
     const sortIndex = sortHistory.findIndex(s => s.key === id);
     const isSorted = sortIndex !== -1;
@@ -283,7 +307,6 @@ export function GraphStatsModal({ nodes, edges, onClose, onNodeClick }: GraphSta
           group hover:bg-abyss-hover/50 transition-colors
           ${isSorted ? 'text-white' : 'text-gray-400'}
         `}>
-          {/* Label & Sort Click Area - Explicitly select-none to prevent highlighting while sorting */}
           <div 
             className="flex items-center gap-1 cursor-pointer select-text whitespace-nowrap"
             onClick={() => handleSort(id)}
@@ -298,7 +321,6 @@ export function GraphStatsModal({ nodes, edges, onClose, onNodeClick }: GraphSta
             )}
           </div>
 
-          {/* Filter Trigger */}
           <button
             onClick={(e) => { e.stopPropagation(); setActiveFilterDropdown(dropdownOpen ? null : id); }}
             className={`p-1 rounded hover:bg-abyss-highlight transition-colors ${isFiltered ? 'text-brand-primary' : 'text-gray-600 hover:text-gray-300'}`}
@@ -307,7 +329,6 @@ export function GraphStatsModal({ nodes, edges, onClose, onNodeClick }: GraphSta
           </button>
         </div>
 
-        {/* Filter Dropdown - Needs select-text for inputs */}
         {dropdownOpen && (
           <div 
             ref={dropdownRef}
@@ -363,18 +384,8 @@ export function GraphStatsModal({ nodes, edges, onClose, onNodeClick }: GraphSta
               {type === 'category' && (
                 <div className="space-y-2">
                   <div className="flex gap-2 mb-1">
-                    <button 
-                      onClick={() => updateFilter(id, { selectedCategories: uniqueValues as number[] })}
-                      className="text-[10px] text-brand-glow hover:underline"
-                    >
-                      Select All
-                    </button>
-                    <button 
-                      onClick={() => updateFilter(id, { selectedCategories: [] })}
-                      className="text-[10px] text-brand-glow hover:underline"
-                    >
-                      None
-                    </button>
+                    <button onClick={() => updateFilter(id, { selectedCategories: uniqueValues as number[] })} className="text-[10px] text-brand-glow hover:underline">Select All</button>
+                    <button onClick={() => updateFilter(id, { selectedCategories: [] })} className="text-[10px] text-brand-glow hover:underline">None</button>
                   </div>
                   <div className="max-h-32 overflow-y-auto custom-scrollbar space-y-1 border border-abyss-border rounded p-1 bg-abyss">
                     {uniqueValues.map(val => {
@@ -387,11 +398,8 @@ export function GraphStatsModal({ nodes, edges, onClose, onNodeClick }: GraphSta
                             onChange={(e) => {
                               const current = filters[id]?.selectedCategories ?? uniqueValues as number[];
                               let next;
-                              if (e.target.checked) {
-                                next = [...current, val as number];
-                              } else {
-                                next = current.filter(v => v !== val);
-                              }
+                              if (e.target.checked) next = [...current, val as number];
+                              else next = current.filter(v => v !== val);
                               updateFilter(id, { selectedCategories: next });
                             }}
                             className="rounded border-abyss-border bg-abyss-surface text-brand-primary focus:ring-0 w-3.5 h-3.5"
@@ -420,9 +428,6 @@ export function GraphStatsModal({ nodes, edges, onClose, onNodeClick }: GraphSta
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2 md:p-6 pointer-events-auto bg-black/60 backdrop-blur-sm">
-      {/* UPDATED: Width logic to auto-size based on content but max out at screen width.
-         select-text enabled for copying data.
-      */}
       <div className="relative w-auto max-w-[95vw] h-[90vh] bg-abyss-surface border border-abyss-border rounded-2xl shadow-2xl overflow-hidden animate-fade-in flex flex-col select-text">
         
         {/* Header */}
@@ -437,15 +442,43 @@ export function GraphStatsModal({ nodes, edges, onClose, onNodeClick }: GraphSta
               <span>{avgEdgesPerNode} avg/node</span>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="flex-shrink-0 p-2 text-gray-400 hover:text-white hover:bg-abyss-hover rounded-lg transition-all duration-200 ml-4"
-          >
-            <XMarkIcon className="w-6 h-6" />
-          </button>
+          
+          <div className="flex items-center gap-3">
+            {/* Action Buttons */}
+            <button 
+              onClick={handleExportJSON}
+              className="flex items-center gap-2 px-3 py-1.5 bg-abyss-hover border border-abyss-border hover:border-brand-primary/50 text-gray-300 hover:text-white rounded-lg transition-colors text-sm"
+              title="Download table data as JSON"
+            >
+              <ArrowDownTrayIcon className="w-4 h-4" />
+              <span className="hidden md:inline">Export JSON</span>
+            </button>
+
+            <button 
+              onClick={handleCopyToClipboard}
+              className={`flex items-center gap-2 px-3 py-1.5 border rounded-lg transition-colors text-sm ${
+                copyFeedback 
+                  ? 'bg-emerald-500/10 border-emerald-500/50 text-emerald-400' 
+                  : 'bg-abyss-hover border-abyss-border hover:border-brand-primary/50 text-gray-300 hover:text-white'
+              }`}
+              title="Copy table to clipboard (Excel compatible)"
+            >
+              {copyFeedback ? <CheckIcon className="w-4 h-4" /> : <ClipboardDocumentIcon className="w-4 h-4" />}
+              <span className="hidden md:inline">{copyFeedback ? 'Copied!' : 'Copy Table'}</span>
+            </button>
+
+            <div className="w-px h-6 bg-abyss-border mx-1" />
+
+            <button
+              onClick={onClose}
+              className="p-2 text-gray-400 hover:text-white hover:bg-abyss-hover rounded-lg transition-all duration-200"
+            >
+              <XMarkIcon className="w-6 h-6" />
+            </button>
+          </div>
         </div>
 
-        {/* Table Container - Horizontal Scroll Enabled */}
+        {/* Table Container */}
         <div className="flex-1 overflow-auto custom-scrollbar">
           <table className="w-full relative border-collapse">
             <thead className="sticky top-0 bg-abyss border-b border-abyss-border shadow-lg z-20">
@@ -533,8 +566,6 @@ export function GraphStatsModal({ nodes, edges, onClose, onNodeClick }: GraphSta
     </div>
   );
 }
-
-// --- Helpers ---
 
 function getDepthColor(depth: number): string {
   const hue = 280 - (Math.min(depth, 6) * 27);
