@@ -35,14 +35,7 @@ function getNodeColor(node: NodeRenderData): THREE.Color {
 }
 
 function getNodeSize(node: NodeRenderData): number {
-  // --- CHANGE 1: Increased Base Size significantly ---
-  // Was 5, now 12. This makes nodes feel solid and prominent.
   const base = 12; 
-  
-  // Adjusted scaling: 
-  // We dampen the multiplier slightly since the base is larger.
-  // Importance 0.0 -> 12 (1x)
-  // Importance 1.0 -> 60 (5x)
   const multiplier = 1 + (node.importance * 4);
   
   let size = base * multiplier;
@@ -102,7 +95,7 @@ export function createNodeObject(node: NodeRenderData, quality: 'high' | 'low'):
     ));
   }
 
-  // --- 2. TEXT LABEL (INSIDE SPHERE) ---
+  // --- 2. TEXT LABEL ---
   const cacheKey = `${node.label}-${node.isSelected}`;
   let texture = textureCache.get(cacheKey);
 
@@ -121,15 +114,23 @@ export function createNodeObject(node: NodeRenderData, quality: 'high' | 'low'):
 
   const sprite = new THREE.Sprite(spriteMat);
   sprite.renderOrder = 100;
+  
+  // Tag it for the hover animation loop
+  sprite.name = 'label'; 
 
-  // Scale: Fill the larger sphere volume
+  // Scale calculations
   const image = texture.image as HTMLCanvasElement;
   const aspect = image.width / image.height;
-  
-  // Matches the new node size perfectly
   const textHeight = nodeSize * 0.7; 
+  
+  // Set initial scale
   sprite.scale.set(textHeight * aspect, textHeight, 1);
   sprite.position.set(0, 0, 0);
+
+  // Store the base scale in userData so we can smoothly animate back to it
+  sprite.userData = {
+    baseScale: new THREE.Vector3(textHeight * aspect, textHeight, 1)
+  };
 
   group.add(sprite);
 
@@ -144,7 +145,8 @@ function createTextTexture(label: string, isSelected: boolean): THREE.Texture {
   canvas.width = size;
   canvas.height = size; 
 
-  const fontSize = 110;
+  // --- CHANGED: Increased base font size slightly (110 -> 130) ---
+  const fontSize = 130;
   const fontWeight = isSelected ? '900' : '700';
   ctx.font = `${fontWeight} ${fontSize}px Inter, sans-serif`;
   ctx.textAlign = 'center';

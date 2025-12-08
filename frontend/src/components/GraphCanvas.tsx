@@ -1,4 +1,4 @@
-// frontend/src/components/GraphCanvas.tsx
+// frontend/src/components/graph/GraphCanvas.tsx
 // @refresh reset
 import { useEffect, useRef, useCallback, useMemo, forwardRef, useImperativeHandle, useState } from 'react';
 import ForceGraph3D, { ForceGraphMethods } from 'react-force-graph-3d';
@@ -24,7 +24,6 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
   const containerRef = useRef<HTMLDivElement>(null);
   const isInitializedRef = useRef(false); 
   
-  // Initialize with window size so it renders immediately
   const [dimensions, setDimensions] = useState({ 
     width: window.innerWidth, 
     height: window.innerHeight 
@@ -33,14 +32,16 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
   const sharedTimeUniform = useRef({ value: 0 });
   const animationFrameRef = useRef<number>();
   
+  // Track nodes currently undergoing scale transition
+  const animatingNodes = useRef<Set<THREE.Object3D>>(new Set());
+  const hoveredNodeRef = useRef<any>(null);
+
   const { nodes, edges, selectedNode, rootNode, graphicsQuality } = useGraphStore();
 
-  // 1. Calculate Topology Stats (Memoized)
   const nodeStats = useMemo(() => {
     return calculateGraphStats(nodes, edges);
   }, [nodes, edges]);
 
-  // 2. Prepare Graph Data
   const graphData = useMemo(() => {
     return {
       nodes: nodes.map(n => {
@@ -66,15 +67,12 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
   useImperativeHandle(ref, () => ({
     focusNode: (nodeId: string) => {
       if (!fgRef.current) return;
-      
-      // --- TYPE FIX: Cast to any to access graphData() ---
       const graphNodes = (fgRef.current as any).graphData().nodes as any[];
       const targetNode = graphNodes.find(n => n.id === nodeId);
       
       if (targetNode && typeof targetNode.x === 'number') {
-        const distance = 220;
+        const distance = 300; 
         const distRatio = 1 + distance / Math.hypot(targetNode.x, targetNode.y, targetNode.z);
-        
         fgRef.current.cameraPosition(
           { x: targetNode.x * distRatio, y: targetNode.y * distRatio, z: targetNode.z * distRatio },
           targetNode, 
@@ -84,29 +82,20 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
     }
   }), [graphData]);
 
-  // 3. Resize Handling
+  // Handle Resize
   useEffect(() => {
     if (!containerRef.current) return;
-
     const updateDimensions = () => {
       if (containerRef.current) {
         const { width, height } = containerRef.current.getBoundingClientRect();
-        if (width > 0 && height > 0) {
-          setDimensions({ width, height });
-        }
+        if (width > 0 && height > 0) setDimensions({ width, height });
       }
     };
-
-    const resizeObserver = new ResizeObserver(() => {
-      requestAnimationFrame(updateDimensions);
-    });
-    
+    const resizeObserver = new ResizeObserver(() => requestAnimationFrame(updateDimensions));
     resizeObserver.observe(containerRef.current);
     window.addEventListener('resize', updateDimensions);
     window.addEventListener('orientationchange', () => setTimeout(updateDimensions, 200));
-
     updateDimensions();
-
     return () => {
       resizeObserver.disconnect();
       window.removeEventListener('resize', updateDimensions);
@@ -114,33 +103,52 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
     };
   }, []);
 
-  // 4. Scene Setup
+  // Scene Setup & Animation Loop
   useEffect(() => {
     if (!fgRef.current) return;
-    
     if (isInitializedRef.current) return;
     isInitializedRef.current = true;
 
     const scene = fgRef.current.scene();
-    
     const { background, material: bgMaterial } = createAtmosphericBackground();
     scene.add(background);
     setupLighting(scene);
     setupFog(scene);
 
     const animate = () => {
+      // 1. Update Shaders
       sharedTimeUniform.current.value += 0.012;
       if (bgMaterial && bgMaterial.uniforms) {
         bgMaterial.uniforms.time.value = sharedTimeUniform.current.value;
       }
+
+      // 2. Update Label Scales (Smooth Zoom)
+      if (animatingNodes.current.size > 0) {
+        const toRemove: THREE.Object3D[] = [];
+        
+        animatingNodes.current.forEach((obj) => {
+          const target = obj.userData.targetScale;
+          if (!target) return;
+
+          // LERP towards target scale (0.08 is a nice smooth easing factor)
+          obj.scale.lerp(target, 0.08);
+
+          // If close enough, snap and remove from animation set
+          if (obj.scale.distanceTo(target) < 0.01) {
+            obj.scale.copy(target);
+            toRemove.push(obj);
+          }
+        });
+
+        toRemove.forEach(obj => animatingNodes.current.delete(obj));
+      }
+
       animationFrameRef.current = requestAnimationFrame(animate);
     };
     animate();
 
     return () => {
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-      }
+      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
       scene.remove(background);
       background.geometry.dispose();
       bgMaterial.dispose();
@@ -148,17 +156,15 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
     };
   }, []); 
 
-  // 5. Physics & Data
+  // Physics Config
   useEffect(() => {
     if (!fgRef.current) return;
-
     const linkForce = fgRef.current.d3Force('link');
     if (linkForce) {
       linkForce
-        .distance((link: any) => link.distance || 150)
+        .distance((link: any) => (link.distance || 150) * 0.4)
         .strength(1.0);
     }
-    
     fgRef.current.d3Force('charge')?.strength(-600); 
     fgRef.current.d3Force('center')?.strength(0.2);
     
@@ -168,7 +174,7 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
   }, [nodes.length, edges.length]); 
 
   const handleNodeClick = useCallback((node: any) => {
-    const distance = 220;
+    const distance = 300;
     const distRatio = 1 + distance / Math.hypot(node.x, node.y, node.z);
     if (fgRef.current) {
       fgRef.current.cameraPosition(
@@ -179,6 +185,45 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
     }
     onNodeClick(node.id);
   }, [onNodeClick]);
+
+  // --- HOVER HANDLER ---
+  const handleNodeHover = useCallback((node: any | null) => {
+    // If hovering a new node or leaving a node
+    if (node !== hoveredNodeRef.current) {
+      
+      // 1. Reset previous node
+      if (hoveredNodeRef.current) {
+        const prevObj = hoveredNodeRef.current.__threeObj as THREE.Group;
+        if (prevObj) {
+          const label = prevObj.getObjectByName('label');
+          if (label && label.userData.baseScale) {
+            // Set target back to base
+            label.userData.targetScale = label.userData.baseScale;
+            animatingNodes.current.add(label);
+          }
+        }
+      }
+
+      // 2. Scale up new node
+      if (node) {
+        const obj = node.__threeObj as THREE.Group;
+        if (obj) {
+          const label = obj.getObjectByName('label');
+          if (label && label.userData.baseScale) {
+            // Target = 2.5x Base Scale
+            label.userData.targetScale = label.userData.baseScale.clone().multiplyScalar(2.5);
+            animatingNodes.current.add(label);
+          }
+        }
+        // Change cursor
+        if (containerRef.current) containerRef.current.style.cursor = 'pointer';
+      } else {
+        if (containerRef.current) containerRef.current.style.cursor = 'move';
+      }
+
+      hoveredNodeRef.current = node;
+    }
+  }, []);
 
   const handleNodeRightClick = useCallback((node: any, event: MouseEvent) => {
     event.preventDefault();
@@ -239,6 +284,7 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
         linkWidth={graphicsQuality === 'high' ? 0 : 1}
         linkColor={() => '#4c1d95'}
         
+        onNodeHover={handleNodeHover}
         onNodeClick={handleNodeClick}
         onNodeRightClick={handleNodeRightClick}
         
