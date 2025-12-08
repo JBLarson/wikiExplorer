@@ -1,3 +1,5 @@
+// frontend/src/stores/graphStore.ts
+
 import { create } from 'zustand';
 import type { GraphState, GraphNode, GraphEdge, SavedGraph } from '../types';
 
@@ -15,6 +17,9 @@ interface GraphStore extends GraphState {
   getConnectedNodes: (nodeId: string) => GraphNode[];
   incrementExpansionCount: (nodeId: string) => void;
   
+  // NEW: Prune functionality
+  pruneGraph: (newRootId: string) => void;
+
   exportGraphToJSON: (name: string) => void;
   importGraphFromJSON: (savedGraph: SavedGraph) => void;
   getGraphMetadata: () => SavedGraph['metadata'];
@@ -30,7 +35,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
   rootNode: null,
   history: [],
   isLoading: false,
-  graphicsQuality: 'high', // Default to pretty
+  graphicsQuality: 'high',
 
   setGraphicsQuality: (quality) => set({ graphicsQuality: quality }),
   
@@ -90,6 +95,65 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
       )
     })),
   
+  // --- NEW: Prune Graph Logic ---
+  pruneGraph: (newRootId: string) => {
+    const state = get();
+    const { nodes, edges } = state;
+
+    // 1. Build Adjacency List for Traversal
+    const adjacency = new Map<string, string[]>();
+    edges.forEach(e => {
+        // Only track forward edges for hierarchy (ignore cross edges for structural pruning if preferred, 
+        // or keep them. Here we simply follow all edges to find descendants)
+        if (!adjacency.has(e.source)) adjacency.set(e.source, []);
+        adjacency.get(e.source)!.push(e.target);
+    });
+
+    // 2. Find all reachable nodes from the new root (BFS)
+    const keptNodeIds = new Set<string>([newRootId]);
+    const queue = [newRootId];
+    
+    // Also track new depth levels relative to the new root
+    const newDepths = new Map<string, number>();
+    newDepths.set(newRootId, 0);
+
+    while (queue.length > 0) {
+        const currentId = queue.shift()!;
+        const currentDepth = newDepths.get(currentId)!;
+        const neighbors = adjacency.get(currentId) || [];
+
+        for (const neighborId of neighbors) {
+            if (!keptNodeIds.has(neighborId)) {
+                keptNodeIds.add(neighborId);
+                newDepths.set(neighborId, currentDepth + 1);
+                queue.push(neighborId);
+            }
+        }
+    }
+
+    // 3. Filter Nodes & Edges
+    const finalNodes = nodes
+        .filter(n => keptNodeIds.has(n.id))
+        .map(n => ({
+            ...n,
+            // Update depth so visualization colors reset (New Root = Purple/Amber)
+            depth: newDepths.has(n.id) ? newDepths.get(n.id)! : 0
+        }));
+
+    const finalEdges = edges.filter(e => 
+        keptNodeIds.has(e.source) && keptNodeIds.has(e.target)
+    );
+
+    // 4. Update State
+    set({
+        nodes: finalNodes,
+        edges: finalEdges,
+        rootNode: newRootId,
+        selectedNode: newRootId, // Select the new root
+        history: state.history.filter(id => keptNodeIds.has(id)) // Keep relevant history
+    });
+  },
+
   getNodeById: (nodeId) => {
     return get().nodes.find(n => n.id === nodeId);
   },
@@ -104,7 +168,6 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
     return get().nodes.filter(n => connectedIds.includes(n.id));
   },
   
-  // NEW: Export graph to JSON file
   exportGraphToJSON: (name: string) => {
     const state = get();
     
@@ -127,7 +190,6 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
       }
     };
     
-    // Create blob and download
     const blob = new Blob([JSON.stringify(savedGraph, null, 2)], {
       type: 'application/json'
     });
@@ -142,14 +204,11 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
     URL.revokeObjectURL(url);
   },
   
-  // NEW: Import graph from JSON
   importGraphFromJSON: (savedGraph: SavedGraph) => {
-    // Validate version compatibility
     if (!savedGraph.version || savedGraph.version.split('.')[0] !== '1') {
       throw new Error('Incompatible graph version');
     }
     
-    // Validate required fields
     if (!savedGraph.nodes || !savedGraph.edges) {
       throw new Error('Invalid graph data');
     }
@@ -164,7 +223,6 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
     });
   },
   
-  // NEW: Get current graph metadata
   getGraphMetadata: () => {
     const state = get();
     const maxDepth = state.nodes.length > 0 
