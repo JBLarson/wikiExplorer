@@ -3,251 +3,187 @@
 import * as THREE from 'three';
 import { nodeGlowVertexShader, nodeGlowFragmentShader } from './Shaders';
 
-interface NodeRenderData {
+export interface NodeRenderData {
   id: string;
   label: string;
   group: number;
-  val: number;
+  importance: number; // 0.0 to 1.0
+  degree: number;
   isSelected: boolean;
   isRoot: boolean;
-  expansionCount?: number;
+  expansionCount: number;
 }
 
-// Cache textures to avoid recreating canvases
 const textureCache = new Map<string, THREE.Texture>();
 
 function getNodeColor(node: NodeRenderData): THREE.Color {
   const depth = Math.min(node.group, 6);
   
-  if (node.isRoot) {
-    return new THREE.Color(0xF59E0B); // Amber
-  }
+  if (node.isRoot) return new THREE.Color(0xF59E0B); // Amber
+  if (node.isSelected) return new THREE.Color(0xFFFFFF); // White
   
-  if (node.isSelected) {
-    return new THREE.Color(0xFFFFFF); // White
-  }
-  
-  const expansionCount = node.expansionCount || 0;
-  const isImportant = expansionCount >= 2;
-  
-  const baseHue = 280 - (depth * 27);
-  const baseSaturation = 0.7 + (depth * 0.04);
-  const baseLightness = 0.65 - (depth * 0.06);
-  
-  const saturation = isImportant ? Math.min(baseSaturation + 0.15, 1.0) : baseSaturation;
-  const lightness = isImportant ? Math.min(baseLightness + 0.1, 0.8) : baseLightness;
+  const isHub = node.importance > 0.3;
+  const baseHue = 270 - (depth * 20); 
   
   const color = new THREE.Color();
-  color.setHSL(baseHue / 360, saturation, lightness);
-  
+  color.setHSL(
+    baseHue / 360, 
+    isHub ? 0.95 : 0.65, 
+    isHub ? 0.75 : 0.6
+  );
   return color;
 }
 
-function getGlowIntensity(node: NodeRenderData): number {
-  if (node.isSelected) return 0.8;
-  if (node.isRoot) return 0.6;
+function getNodeSize(node: NodeRenderData): number {
+  // Base size for a leaf node
+  const base = 5; 
   
-  const expansionCount = node.expansionCount || 0;
-  if (expansionCount >= 2) return 0.4;
-  if (expansionCount === 1) return 0.3;
+  // Linear-ish scaling capped at ~6x the base size.
+  const multiplier = 1 + (node.importance * 5);
   
-  return 0.2;
+  let size = base * multiplier;
+  if (node.isRoot) size *= 1.3;
+  
+  return size;
 }
 
 export function createNodeObject(node: NodeRenderData, quality: 'high' | 'low'): THREE.Group {
   const baseColor = getNodeColor(node);
-  const nodeSize = node.val * 0.45;
+  const nodeSize = getNodeSize(node);
   const group = new THREE.Group();
 
-  // --- MESH RENDERER ---
+  // --- 1. SPHERE GEOMETRY ---
   if (quality === 'high') {
-    // 1. Wireframe
-    const wireframeGeometry = new THREE.SphereGeometry(nodeSize, 7, 7);
-    const wireframeOpacity = node.isSelected ? 1.0 : 
-                             node.isRoot ? 0.9 :
-                             (node.expansionCount || 0) >= 1 ? 0.8 : 0.7;
+    const segments = nodeSize > 15 ? 32 : 16;
     
-    const wireframeMaterial = new THREE.MeshBasicMaterial({
-      color: baseColor,
-      wireframe: true,
-      transparent: true,
-      opacity: wireframeOpacity,
-    });
-    group.add(new THREE.Mesh(wireframeGeometry, wireframeMaterial));
-
-    // 2. Glow Shader
-    const glowGeometry = new THREE.SphereGeometry(nodeSize * 1.15, 16, 16);
-    const glowMaterial = new THREE.ShaderMaterial({
-      uniforms: {
-        color: { value: baseColor },
-        intensity: { value: getGlowIntensity(node) },
-      },
-      vertexShader: nodeGlowVertexShader,
-      fragmentShader: nodeGlowFragmentShader,
-      transparent: true,
-      side: THREE.BackSide,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-    });
-    group.add(new THREE.Mesh(glowGeometry, glowMaterial));
-  } else {
-    // Low Quality: Simple solid sphere
-    const geometry = new THREE.SphereGeometry(nodeSize, 8, 8); 
-    const material = new THREE.MeshLambertMaterial({
-      color: baseColor,
-      transparent: true,
-      opacity: node.isSelected || node.isRoot ? 1.0 : 0.8,
-    });
-    group.add(new THREE.Mesh(geometry, material));
-  }
-
-  // --- TEXT SPRITE ---
-  // Update cache key to include quality setting so we don't serve white text in low mode
-  const cacheKey = `${node.label}-${nodeSize}-${node.isSelected}-${node.isRoot}-${quality}`;
-  let texture = textureCache.get(cacheKey);
-  
-  if (!texture) {
-    texture = createTextTexture(
-      node.label, 
-      baseColor, 
-      nodeSize, 
-      node.isSelected || node.isRoot, 
-      quality
+    // Wireframe
+    const wireframe = new THREE.Mesh(
+      new THREE.SphereGeometry(nodeSize * 0.5, segments, segments),
+      new THREE.MeshBasicMaterial({
+        color: baseColor,
+        wireframe: true,
+        transparent: true,
+        opacity: node.isSelected ? 0.5 : 0.15,
+      })
     );
-    textureCache.set(cacheKey, texture);
-    
-    if (textureCache.size > 200) {
-      const firstKey = Array.from(textureCache.keys())[0];
-      if (firstKey) {
-        const oldTexture = textureCache.get(firstKey);
-        if (oldTexture) oldTexture.dispose();
-        textureCache.delete(firstKey);
-      }
-    }
+    group.add(wireframe);
+
+    // Glow Shader
+    const glowScale = 1.2;
+    const glowMesh = new THREE.Mesh(
+      new THREE.SphereGeometry(nodeSize * 0.5 * glowScale, segments, segments),
+      new THREE.ShaderMaterial({
+        uniforms: {
+          color: { value: baseColor },
+          intensity: { value: node.isSelected ? 0.6 : 0.3 + (node.importance * 0.2) },
+        },
+        vertexShader: nodeGlowVertexShader,
+        fragmentShader: nodeGlowFragmentShader,
+        transparent: true,
+        side: THREE.BackSide,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      })
+    );
+    group.add(glowMesh);
+  } else {
+    // Low Quality
+    group.add(new THREE.Mesh(
+      new THREE.SphereGeometry(nodeSize * 0.5, 12, 12),
+      new THREE.MeshLambertMaterial({ 
+        color: baseColor,
+        transparent: true,
+        opacity: 0.6
+      })
+    ));
   }
 
-  const spriteMaterial = new THREE.SpriteMaterial({
+  // --- 2. TEXT LABEL (INSIDE SPHERE) ---
+  const cacheKey = `${node.label}-${node.isSelected}`;
+  let texture = textureCache.get(cacheKey);
+
+  if (!texture) {
+    texture = createTextTexture(node.label, node.isSelected);
+    textureCache.set(cacheKey, texture);
+  }
+
+  const spriteMat = new THREE.SpriteMaterial({
     map: texture,
     transparent: true,
-    opacity: 1,
-    depthTest: false,
+    opacity: 1.0,
+    depthTest: false, 
+    depthWrite: false
   });
-  
-  const sprite = new THREE.Sprite(spriteMaterial);
-  const spriteSizeRatio = 1.6;
-  sprite.scale.set(nodeSize * spriteSizeRatio, nodeSize * spriteSizeRatio, 1);
+
+  const sprite = new THREE.Sprite(spriteMat);
+  sprite.renderOrder = 100;
+
+  // Scale: We want the text to fill roughly 90% of the sphere diameter.
+  // Since we use a square texture (1024x1024) to center the text, 
+  // we just scale the sprite to match the node size.
+  const scale = nodeSize * 0.9;
+  sprite.scale.set(scale, scale, 1);
   sprite.position.set(0, 0, 0);
+
   group.add(sprite);
 
   return group;
 }
 
-function createTextTexture(
-  label: string,
-  color: THREE.Color,
-  nodeSize: number,
-  isHighlighted: boolean,
-  quality: 'high' | 'low' // Added quality param
-): THREE.Texture {
+function createTextTexture(label: string, isSelected: boolean): THREE.Texture {
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d')!;
-  canvas.width = 512;
-  canvas.height = 512;
-
-  const maxWidth = canvas.width * 0.8;
-  const maxHeight = canvas.height * 0.8;
-  let fontSize = 72;
   
-  const wrapText = (text: string, maxWidth: number, fontSize: number): string[] => {
-    ctx.font = `bold ${fontSize}px Inter`;
-    const words = text.split(' ');
-    const lines: string[] = [];
-    let currentLine = '';
+  // Use a square canvas to make centering inside the sphere mathematically simple
+  const size = 1024;
+  canvas.width = size;
+  canvas.height = size; 
 
-    for (const word of words) {
-      const testLine = currentLine ? `${currentLine} ${word}` : word;
-      const metrics = ctx.measureText(testLine);
-      
-      if (metrics.width > maxWidth && currentLine) {
-        lines.push(currentLine);
-        currentLine = word;
-      } else {
-        currentLine = testLine;
-      }
-    }
-    
-    if (currentLine) lines.push(currentLine);
-    return lines;
-  };
-
-  let lines = wrapText(label, maxWidth, fontSize);
-  let lineHeight = fontSize * 1.2;
-  let totalHeight = lines.length * lineHeight;
-
-  while (totalHeight > maxHeight && fontSize > 20) {
-    fontSize -= 4;
-    lines = wrapText(label, maxWidth, fontSize);
-    lineHeight = fontSize * 1.2;
-    totalHeight = lines.length * lineHeight;
-  }
-
-  ctx.font = `bold ${fontSize}px Inter`;
-  const maxLineWidth = Math.max(...lines.map(line => ctx.measureText(line).width));
-  if (maxLineWidth > maxWidth) {
-    fontSize = fontSize * (maxWidth / maxLineWidth);
-    lines = wrapText(label, maxWidth, fontSize);
-    lineHeight = fontSize * 1.2;
-  }
-
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.font = `bold ${fontSize}px Inter`;
-  
-  // --- COLOR LOGIC FIX ---
-  if (quality === 'low' && isHighlighted) {
-    // In low quality, highlighted nodes are solid bright spheres -> Use Black Text
-    ctx.fillStyle = '#000000';
-  } else {
-    // In high quality (wireframe) or unselected low quality -> Use White/Grey Text
-    ctx.fillStyle = isHighlighted ? '#FFFFFF' : '#F3F4F6';
-  }
-  
+  const fontSize = 110;
+  const fontWeight = isSelected ? '900' : '700';
+  ctx.font = `${fontWeight} ${fontSize}px Inter, sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  
-  // Remove shadow for black text to make it crisper
-  if (!(quality === 'low' && isHighlighted)) {
-    ctx.shadowColor = color.getStyle();
-    ctx.shadowBlur = isHighlighted ? 20 : 15;
-  }
 
-  const startY = (canvas.height - totalHeight) / 2 + lineHeight / 2;
-  lines.forEach((line, index) => {
-    ctx.fillText(line, canvas.width / 2, startY + (index * lineHeight));
+  // --- Word Wrap Logic ---
+  const maxWidth = size * 0.9; // 90% of canvas width
+  const words = label.split(' ');
+  const lines: string[] = [];
+  let currentLine = '';
+
+  for (const word of words) {
+    const testLine = currentLine ? `${currentLine} ${word}` : word;
+    const metrics = ctx.measureText(testLine);
+    
+    if (metrics.width > maxWidth && currentLine) {
+      lines.push(currentLine);
+      currentLine = word;
+    } else {
+      currentLine = testLine;
+    }
+  }
+  if (currentLine) lines.push(currentLine);
+
+  // --- Drawing ---
+  // Center the block of text vertically
+  const lineHeight = fontSize * 1.1;
+  const totalTextHeight = lines.length * lineHeight;
+  const startY = (size - totalTextHeight) / 2 + (lineHeight / 2);
+
+  // Style
+  ctx.lineWidth = 12;
+  ctx.strokeStyle = 'rgba(0, 0, 0, 0.9)'; // Dark outline
+  ctx.fillStyle = '#FFFFFF';
+
+  lines.forEach((line, i) => {
+    const y = startY + (i * lineHeight);
+    ctx.strokeText(line, size / 2, y);
+    ctx.fillText(line, size / 2, y);
   });
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.minFilter = THREE.LinearFilter;
-  texture.magFilter = THREE.LinearFilter;
+  texture.anisotropy = 4; 
   
   return texture;
-}
-
-export function getDepthColor(depth: number): string {
-  const hue = 280 - (Math.min(depth, 6) * 27);
-  const saturation = 70 + (depth * 4);
-  const lightness = 65 - (depth * 6);
-  return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
-}
-
-export function getDepthDescription(depth: number): string {
-  const descriptions = [
-    'Root Topic',
-    'Direct Connections',
-    'Secondary Relations',
-    'Tertiary Context',
-    'Extended Network',
-    'Peripheral Topics',
-    'Deep Exploration',
-  ];
-  return descriptions[Math.min(depth, descriptions.length - 1)];
 }

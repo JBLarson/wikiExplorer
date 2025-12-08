@@ -1,3 +1,4 @@
+// frontend/src/components/GraphCanvas.tsx
 // @refresh reset
 import { useEffect, useRef, useCallback, useMemo, forwardRef, useImperativeHandle, useState } from 'react';
 import ForceGraph3D, { ForceGraphMethods } from 'react-force-graph-3d';
@@ -5,7 +6,8 @@ import { useGraphStore } from '../stores/graphStore';
 import * as THREE from 'three';
 import { createAtmosphericBackground, setupLighting, setupFog } from './graph/SceneSetup';
 import { createMistConnection } from './graph/MistEffect';
-import { createNodeObject } from './graph/NodeRenderer';
+import { createNodeObject, NodeRenderData } from './graph/NodeRenderer';
+import { calculateGraphStats } from '../services/graphStats';
 
 interface GraphCanvasProps {
   onNodeClick: (nodeId: string) => void;
@@ -22,7 +24,7 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
   const containerRef = useRef<HTMLDivElement>(null);
   const isInitializedRef = useRef(false); 
   
-  // Initialize with window size so it renders immediately (prevents blank screen)
+  // Initialize with window size so it renders immediately
   const [dimensions, setDimensions] = useState({ 
     width: window.innerWidth, 
     height: window.innerHeight 
@@ -33,15 +35,25 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
   
   const { nodes, edges, selectedNode, rootNode, graphicsQuality } = useGraphStore();
 
+  // 1. Calculate Topology Stats (Memoized)
+  const nodeStats = useMemo(() => {
+    return calculateGraphStats(nodes, edges);
+  }, [nodes, edges]);
+
+  // 2. Prepare Graph Data
   const graphData = useMemo(() => {
     return {
-      nodes: nodes.map(n => ({ 
-        id: n.id, 
-        group: n.depth,
-        label: n.label,
-        val: n.id === rootNode ? 50 : 35 - (Math.min(n.depth, 5) * 2),
-        expansionCount: n.expansionCount 
-      })),
+      nodes: nodes.map(n => {
+        const stats = nodeStats.get(n.id);
+        return { 
+          id: n.id, 
+          group: n.depth,
+          label: n.label,
+          importance: stats?.importance || 0,
+          degree: stats?.degree || 0,
+          expansionCount: n.expansionCount
+        };
+      }),
       links: edges.map(e => ({ 
         source: e.source, 
         target: e.target,
@@ -49,26 +61,30 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
         score: e.score
       }))
     };
-  }, [nodes, edges, rootNode]);
+  }, [nodes, edges, rootNode, nodeStats]);
 
   useImperativeHandle(ref, () => ({
     focusNode: (nodeId: string) => {
       if (!fgRef.current) return;
-      const targetNode = graphData.nodes.find((n: any) => n.id === nodeId);
-      if (targetNode && typeof (targetNode as any).x === 'number') {
+      
+      // --- TYPE FIX: Cast to any to access graphData() ---
+      const graphNodes = (fgRef.current as any).graphData().nodes as any[];
+      const targetNode = graphNodes.find(n => n.id === nodeId);
+      
+      if (targetNode && typeof targetNode.x === 'number') {
         const distance = 220;
-        const node = targetNode as any;
-        const distRatio = 1 + distance / Math.hypot(node.x, node.y, node.z);
+        const distRatio = 1 + distance / Math.hypot(targetNode.x, targetNode.y, targetNode.z);
+        
         fgRef.current.cameraPosition(
-          { x: node.x * distRatio, y: node.y * distRatio, z: node.z * distRatio },
-          node, 
+          { x: targetNode.x * distRatio, y: targetNode.y * distRatio, z: targetNode.z * distRatio },
+          targetNode, 
           1800  
         );
       }
     }
   }), [graphData]);
 
-  // 1. ROBUST RESIZE HANDLING (State-based)
+  // 3. Resize Handling
   useEffect(() => {
     if (!containerRef.current) return;
 
@@ -76,7 +92,6 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
       if (containerRef.current) {
         const { width, height } = containerRef.current.getBoundingClientRect();
         if (width > 0 && height > 0) {
-          // Setting state triggers a re-render, passing new width/height props to ForceGraph
           setDimensions({ width, height });
         }
       }
@@ -88,11 +103,8 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
     
     resizeObserver.observe(containerRef.current);
     window.addEventListener('resize', updateDimensions);
-    
-    // Handle mobile orientation lag
     window.addEventListener('orientationchange', () => setTimeout(updateDimensions, 200));
 
-    // Force initial measure
     updateDimensions();
 
     return () => {
@@ -102,23 +114,20 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
     };
   }, []);
 
-  // 2. SCENE SETUP (Runs ONCE on mount)
+  // 4. Scene Setup
   useEffect(() => {
     if (!fgRef.current) return;
     
-    // Prevent duplicate initialization
     if (isInitializedRef.current) return;
     isInitializedRef.current = true;
 
     const scene = fgRef.current.scene();
     
-    // Setup Atmosphere
     const { background, material: bgMaterial } = createAtmosphericBackground();
     scene.add(background);
     setupLighting(scene);
     setupFog(scene);
 
-    // Animation Loop
     const animate = () => {
       sharedTimeUniform.current.value += 0.012;
       if (bgMaterial && bgMaterial.uniforms) {
@@ -132,7 +141,6 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
       }
-      // Cleanup
       scene.remove(background);
       background.geometry.dispose();
       bgMaterial.dispose();
@@ -140,21 +148,20 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
     };
   }, []); 
 
-  // 3. PHYSICS & DATA UPDATES
+  // 5. Physics & Data
   useEffect(() => {
     if (!fgRef.current) return;
 
-    // Configure Forces
     const linkForce = fgRef.current.d3Force('link');
     if (linkForce) {
       linkForce
         .distance((link: any) => link.distance || 150)
         .strength(1.0);
     }
-    fgRef.current.d3Force('charge')?.strength(-400); 
+    
+    fgRef.current.d3Force('charge')?.strength(-600); 
     fgRef.current.d3Force('center')?.strength(0.2);
     
-    // Only reheat if we have data (prevents initial explosion)
     if (nodes.length > 0) {
       fgRef.current.d3ReheatSimulation();
     }
@@ -194,21 +201,22 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
           alpha: false,
           precision: graphicsQuality === 'high' ? 'highp' : 'mediump',
         }}
-        nodeLabel="label"
-        nodeRelSize={7}
+        nodeLabel="" 
         nodeResolution={graphicsQuality === 'high' ? 24 : 8}
         nodeOpacity={1}
         
         nodeThreeObject={(node: any) => {
-          return createNodeObject({
+          const renderData: NodeRenderData = {
             id: node.id,
             label: node.label,
             group: node.group,
-            val: node.val,
+            importance: node.importance, 
+            degree: node.degree,
             isSelected: node.id === selectedNode,
             isRoot: node.id === rootNode,
-            expansionCount: node?.expansionCount ?? 0,
-          }, graphicsQuality);
+            expansionCount: node.expansionCount,
+          };
+          return createNodeObject(renderData, graphicsQuality);
         }}
 
         linkThreeObject={graphicsQuality === 'high' ? () => {
