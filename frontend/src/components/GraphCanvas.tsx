@@ -1,4 +1,4 @@
-// frontend/src/components/graph/GraphCanvas.tsx
+// frontend/src/components/GraphCanvas.tsx
 // @refresh reset
 import { useEffect, useRef, useCallback, useMemo, forwardRef, useImperativeHandle, useState } from 'react';
 import ForceGraph3D, { ForceGraphMethods } from 'react-force-graph-3d';
@@ -42,6 +42,7 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
     return calculateGraphStats(nodes, edges);
   }, [nodes, edges]);
 
+  // Construct safe graph data
   const graphData = useMemo(() => {
     return {
       nodes: nodes.map(n => {
@@ -56,8 +57,9 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
         };
       }),
       links: edges.map(e => ({ 
-        source: e.source, 
-        target: e.target,
+        // Ensure we pass primitives so react-force-graph can re-bind them
+        source: typeof e.source === 'object' ? (e.source as any).id : e.source, 
+        target: typeof e.target === 'object' ? (e.target as any).id : e.target,
         distance: e.distance,
         score: e.score
       }))
@@ -127,13 +129,17 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
         const toRemove: THREE.Object3D[] = [];
         
         animatingNodes.current.forEach((obj) => {
+          // Safety Check: If visual object is removed from scene parent, stop animating
+          if (!obj.parent) {
+            toRemove.push(obj);
+            return;
+          }
+
           const target = obj.userData.targetScale;
           if (!target) return;
 
-          // LERP towards target scale (0.08 is a nice smooth easing factor)
           obj.scale.lerp(target, 0.08);
 
-          // If close enough, snap and remove from animation set
           if (obj.scale.distanceTo(target) < 0.01) {
             obj.scale.copy(target);
             toRemove.push(obj);
@@ -156,6 +162,35 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
     };
   }, []); 
 
+  // --- CRITICAL FIX FOR GHOST NODES ---
+  // When nodes are pruned (length changes), manually clean up the animation set
+  // This ensures deleted nodes stop being tracked/animated immediately
+  useEffect(() => {
+    if (animatingNodes.current.size > 0) {
+      const currentIds = new Set(nodes.map(n => n.id));
+      const toRemove: THREE.Object3D[] = [];
+      
+      animatingNodes.current.forEach(obj => {
+        // Attempt to find the ID from the parent group userData (where we usually store ID in rendering)
+        // If we can't map it back, or if the ID is missing from current nodes, kill it.
+        const parentGroup = obj.parent;
+        // In NodeRenderer, we might not have attached ID to userData, but we can infer closure.
+        // Safer strategy: Force-clear animation set on major graph changes to be safe.
+        // Or simply rely on the fact that 'obj.parent' will become null when react-force-graph removes it.
+        if (!parentGroup) {
+            toRemove.push(obj);
+        }
+      });
+      
+      toRemove.forEach(obj => animatingNodes.current.delete(obj));
+    }
+    
+    // Explicitly wake up simulation on structural change
+    if (fgRef.current && nodes.length > 0) {
+      fgRef.current.d3ReheatSimulation();
+    }
+  }, [nodes.length, edges.length]);
+
   // Physics Config
   useEffect(() => {
     if (!fgRef.current) return;
@@ -167,10 +202,6 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
     }
     fgRef.current.d3Force('charge')?.strength(-600); 
     fgRef.current.d3Force('center')?.strength(0.2);
-    
-    if (nodes.length > 0) {
-      fgRef.current.d3ReheatSimulation();
-    }
   }, [nodes.length, edges.length]); 
 
   const handleNodeClick = useCallback((node: any) => {
@@ -188,7 +219,6 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
 
   // --- HOVER HANDLER ---
   const handleNodeHover = useCallback((node: any | null) => {
-    // If hovering a new node or leaving a node
     if (node !== hoveredNodeRef.current) {
       
       // 1. Reset previous node
@@ -197,7 +227,6 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
         if (prevObj) {
           const label = prevObj.getObjectByName('label');
           if (label && label.userData.baseScale) {
-            // Set target back to base
             label.userData.targetScale = label.userData.baseScale;
             animatingNodes.current.add(label);
           }
@@ -210,12 +239,10 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
         if (obj) {
           const label = obj.getObjectByName('label');
           if (label && label.userData.baseScale) {
-            // Target = 2.5x Base Scale
             label.userData.targetScale = label.userData.baseScale.clone().multiplyScalar(2.5);
             animatingNodes.current.add(label);
           }
         }
-        // Change cursor
         if (containerRef.current) containerRef.current.style.cursor = 'pointer';
       } else {
         if (containerRef.current) containerRef.current.style.cursor = 'move';

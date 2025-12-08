@@ -31,8 +31,8 @@ export function useNodeExpander() {
 
       if (cache && cache.links.length > 0) {
         // Use cached links
-        linksToAdd = cache.links.slice(0, 7);
-        const remainingLinks = cache.links.slice(7);
+        linksToAdd = cache.links.slice(0, 50);
+        const remainingLinks = cache.links.slice(50);
 
         linkCache.set(nodeId, {
           links: remainingLinks,

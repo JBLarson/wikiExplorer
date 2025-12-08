@@ -20,12 +20,12 @@ class Config:
     CROSS_EDGE_THRESHOLD = 0.65
     EPSILON = 1e-8
     CANDIDATE_POOL_SIZE = 200
-    RESULTS_TO_RETURN = 32
+    RESULTS_TO_RETURN = 60
     
     # File paths
     if platform.system() == "Darwin":
         INDEX_PATH = "data/index.faiss"
         METADATA_PATH = "data/metadata.db"
     else:
-        INDEX_PATH = "/opt/wikiexplorer/data/index.faiss"
-        METADATA_PATH = "/opt/wikiexplorer/data/metadata.db"
+        INDEX_PATH = "/opt/we/data/index.faiss"
+        METADATA_PATH = "/opt/we/data/metadata.db"

@@ -1,5 +1,4 @@
 // frontend/src/stores/graphStore.ts
-
 import { create } from 'zustand';
 import type { GraphState, GraphNode, GraphEdge, SavedGraph } from '../types';
 
@@ -17,11 +16,8 @@ interface GraphStore extends GraphState {
   getConnectedNodes: (nodeId: string) => GraphNode[];
   incrementExpansionCount: (nodeId: string) => void;
   
-  // --- REDESIGNED ACTIONS ---
-  // Action 1: "Prune" (Delete this branch)
+  // Pruning actions
   pruneSubtree: (nodeId: string) => void;
-  
-  // Action 2: "Focus" (Make this the new root)
   setNewRoot: (nodeId: string) => void;
 
   exportGraphToJSON: (name: string) => void;
@@ -34,7 +30,7 @@ interface GraphStore extends GraphState {
 
 // Helper: Garbage Collector
 // Performs a BFS from the root to find all reachable nodes.
-// Returns the clean lists of nodes and edges.
+// SAFELY handles both string IDs and Object references (which D3 creates)
 const runGarbageCollection = (
   rootId: string, 
   allNodes: GraphNode[], 
@@ -42,9 +38,14 @@ const runGarbageCollection = (
 ) => {
   // 1. Build Adjacency List
   const adjacency = new Map<string, string[]>();
+  
   allEdges.forEach(e => {
-    if (!adjacency.has(e.source)) adjacency.set(e.source, []);
-    adjacency.get(e.source)!.push(e.target);
+    // Defensive check: D3 might turn e.source into an object { id: "..." }
+    const sId = typeof e.source === 'object' ? (e.source as any).id : e.source;
+    const tId = typeof e.target === 'object' ? (e.target as any).id : e.target;
+
+    if (!adjacency.has(sId)) adjacency.set(sId, []);
+    adjacency.get(sId)!.push(tId);
   });
 
   // 2. BFS from Root
@@ -67,17 +68,20 @@ const runGarbageCollection = (
     }
   }
 
-  // 3. Filter
+  // 3. Filter Nodes
   const finalNodes = allNodes
     .filter(n => reachableIds.has(n.id))
     .map(n => ({
       ...n,
-      depth: newDepths.get(n.id) ?? n.depth // Update depth based on new path
+      depth: newDepths.get(n.id) ?? 0 // Reset depth based on new hierarchy
     }));
 
-  const finalEdges = allEdges.filter(e => 
-    reachableIds.has(e.source) && reachableIds.has(e.target)
-  );
+  // 4. Filter Edges
+  const finalEdges = allEdges.filter(e => {
+    const sId = typeof e.source === 'object' ? (e.source as any).id : e.source;
+    const tId = typeof e.target === 'object' ? (e.target as any).id : e.target;
+    return reachableIds.has(sId) && reachableIds.has(tId);
+  });
 
   return { finalNodes, finalEdges, reachableIds };
 };
@@ -125,29 +129,25 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
       nodes: state.nodes.map(n => n.id === nodeId ? { ...n, expansionCount: n.expansionCount + 1 } : n)
   })),
 
-  // --- NEW: Safe Pruning Logic ---
+  // --- PRUNING LOGIC ---
 
-  /**
-   * Action 1: Prune Subtree
-   * Removes the target node. Then runs GC to remove any children that are 
-   * no longer reachable from the main Root.
-   */
   pruneSubtree: (nodeId: string) => {
     const state = get();
     if (!state.rootNode || nodeId === state.rootNode) {
-      console.warn("Cannot prune the root node directly. Use 'Set Root' instead.");
+      console.warn("Cannot prune the root node directly.");
       return;
     }
 
-    // 1. Remove the explicit target node and its connected edges
+    // 1. Explicitly remove the target node
     const nodesAfterDelete = state.nodes.filter(n => n.id !== nodeId);
-    const edgesAfterDelete = state.edges.filter(e => e.source !== nodeId && e.target !== nodeId);
+    // Note: We don't filter edges here; GC will catch orphans in the next step.
 
-    // 2. Run Garbage Collection starting from the *current* Root
+    // 2. Run Garbage Collection from the *current* Root
+    // This finds everything still attached to the root and discards the rest (the pruned branch)
     const { finalNodes, finalEdges, reachableIds } = runGarbageCollection(
       state.rootNode, 
       nodesAfterDelete, 
-      edgesAfterDelete
+      state.edges
     );
 
     set({
@@ -158,16 +158,11 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
     });
   },
 
-  /**
-   * Action 2: Set New Root (Focus)
-   * Makes the target node the new Root. Removes all parents and siblings.
-   * Keeps only the target and its descendants.
-   */
   setNewRoot: (newRootId: string) => {
     const state = get();
     
     // 1. Run Garbage Collection starting from the *new* Root
-    // This naturally discards all ancestors (since BFS flows downstream only)
+    // This naturally discards all ancestors (parents) and unrelated branches
     const { finalNodes, finalEdges, reachableIds } = runGarbageCollection(
       newRootId, 
       state.nodes, 
