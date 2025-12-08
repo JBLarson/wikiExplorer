@@ -31,8 +31,9 @@ export function useNodeExpander() {
 
       if (cache && cache.links.length > 0) {
         // Use cached links
-        linksToAdd = cache.links.slice(0, 50);
-        const remainingLinks = cache.links.slice(50);
+        // UPDATED: Corrected hardcoded value from 50 to 20 to match intent
+        linksToAdd = cache.links.slice(0, 20);
+        const remainingLinks = cache.links.slice(20);
 
         linkCache.set(nodeId, {
           links: remainingLinks,
@@ -55,8 +56,10 @@ export function useNodeExpander() {
         const { links, crossEdges } = await fetchArticleLinks(
           node.label,
           existingNodeLabels,
-          allGraphNodeIds, // <-- Sending IDs now
-          28
+          allGraphNodeIds,
+          // UPDATED: Request 60 nodes.
+          // This allows for 1 immediate display of 20 + 2 future cached expansions of 20.
+          60 
         );
 
         if (links.length === 0) {
@@ -65,8 +68,9 @@ export function useNodeExpander() {
           return;
         }
 
-        linksToAdd = links.slice(0, 7);
-        const linksToCache = links.slice(7);
+        // UPDATED: Slice 20 for display instead of 7
+        linksToAdd = links.slice(0, 20);
+        const linksToCache = links.slice(20);
 
         linkCache.set(nodeId, {
           links: linksToCache,

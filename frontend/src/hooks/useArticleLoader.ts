@@ -29,7 +29,7 @@ export function useArticleLoader() {
     const currentNodes = useGraphStore.getState().nodes;
     const existingNodeLabels = currentNodes.map(n => n.label);
     
-    // FIX: Send IDs instead of Labels
+    // Send IDs instead of Labels
     const allGraphNodeIds = currentNodes.map(n => n.id);
 
     try {
@@ -54,13 +54,15 @@ export function useArticleLoader() {
       const { links, crossEdges } = await fetchArticleLinks(
         article.title,
         existingNodeLabels,
-        allGraphNodeIds, // <-- Sending IDs now
-        49,
+        allGraphNodeIds, 
+        // UPDATED: Standardized to 60 (was 49)
+        60,
         isPrivate
       );
 
-      const linksToDisplay = links.slice(0, 7);
-      const linksToCache = links.slice(7);
+      // UPDATED: Standardized to 20 (was 7)
+      const linksToDisplay = links.slice(0, 20);
+      const linksToCache = links.slice(20);
 
       linkCache.set(nodeId, {
         links: linksToCache,

@@ -22,7 +22,10 @@ export interface GraphCanvasRef {
 export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNodeClick, onNodeRightClick, isSidebarOpen }, ref) => {
   const fgRef = useRef<ForceGraphMethods>();
   const containerRef = useRef<HTMLDivElement>(null);
-  const isInitializedRef = useRef(false); 
+  const isInitializedRef = useRef(false);
+  
+  // Track previous node count to detect pruning events
+  const prevNodeCount = useRef(0);
   
   const [dimensions, setDimensions] = useState({ 
     width: window.innerWidth, 
@@ -32,7 +35,7 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
   const sharedTimeUniform = useRef({ value: 0 });
   const animationFrameRef = useRef<number>();
   
-  // Track nodes currently undergoing scale transition
+  // Track visual objects for smooth transitions
   const animatingNodes = useRef<Set<THREE.Object3D>>(new Set());
   const hoveredNodeRef = useRef<any>(null);
 
@@ -42,7 +45,8 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
     return calculateGraphStats(nodes, edges);
   }, [nodes, edges]);
 
-  // Construct safe graph data
+  // Transform store data into graph data
+  // CRITICAL: We must Memoize this properly so we don't spam the graph with updates
   const graphData = useMemo(() => {
     return {
       nodes: nodes.map(n => {
@@ -53,11 +57,12 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
           label: n.label,
           importance: stats?.importance || 0,
           degree: stats?.degree || 0,
-          expansionCount: n.expansionCount
+          expansionCount: n.expansionCount,
+          // Explicitly pass existing position if available in store (optional, but good practice)
+          // For now, react-force-graph handles reference matching via 'id'
         };
       }),
       links: edges.map(e => ({ 
-        // Ensure we pass primitives so react-force-graph can re-bind them
         source: typeof e.source === 'object' ? (e.source as any).id : e.source, 
         target: typeof e.target === 'object' ? (e.target as any).id : e.target,
         distance: e.distance,
@@ -118,37 +123,29 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
     setupFog(scene);
 
     const animate = () => {
-      // 1. Update Shaders
       sharedTimeUniform.current.value += 0.012;
       if (bgMaterial && bgMaterial.uniforms) {
         bgMaterial.uniforms.time.value = sharedTimeUniform.current.value;
       }
 
-      // 2. Update Label Scales (Smooth Zoom)
+      // Smooth Label Scaling
       if (animatingNodes.current.size > 0) {
         const toRemove: THREE.Object3D[] = [];
-        
         animatingNodes.current.forEach((obj) => {
-          // Safety Check: If visual object is removed from scene parent, stop animating
           if (!obj.parent) {
             toRemove.push(obj);
             return;
           }
-
           const target = obj.userData.targetScale;
           if (!target) return;
-
           obj.scale.lerp(target, 0.08);
-
           if (obj.scale.distanceTo(target) < 0.01) {
             obj.scale.copy(target);
             toRemove.push(obj);
           }
         });
-
         toRemove.forEach(obj => animatingNodes.current.delete(obj));
       }
-
       animationFrameRef.current = requestAnimationFrame(animate);
     };
     animate();
@@ -162,46 +159,64 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
     };
   }, []); 
 
-  // --- CRITICAL FIX FOR GHOST NODES ---
-  // When nodes are pruned (length changes), manually clean up the animation set
-  // This ensures deleted nodes stop being tracked/animated immediately
-  useEffect(() => {
+ useEffect(() => {
+    if (!fgRef.current) return;
+
+    const currentNodeCount = nodes.length;
+    const wasPruned = currentNodeCount < prevNodeCount.current;
+    
+    // 1. Clean up visual artifacts (Ghost Labels)
     if (animatingNodes.current.size > 0) {
-      const currentIds = new Set(nodes.map(n => n.id));
       const toRemove: THREE.Object3D[] = [];
-      
       animatingNodes.current.forEach(obj => {
-        // Attempt to find the ID from the parent group userData (where we usually store ID in rendering)
-        // If we can't map it back, or if the ID is missing from current nodes, kill it.
-        const parentGroup = obj.parent;
-        // In NodeRenderer, we might not have attached ID to userData, but we can infer closure.
-        // Safer strategy: Force-clear animation set on major graph changes to be safe.
-        // Or simply rely on the fact that 'obj.parent' will become null when react-force-graph removes it.
-        if (!parentGroup) {
-            toRemove.push(obj);
-        }
+        if (!obj.parent) toRemove.push(obj);
       });
-      
       toRemove.forEach(obj => animatingNodes.current.delete(obj));
     }
-    
-    // Explicitly wake up simulation on structural change
-    if (fgRef.current && nodes.length > 0) {
+
+    // 2. Handle Physics State
+    if (wasPruned) {
+      // Stop the simulation briefly to let React flush the DOM/State changes
+      fgRef.current.pauseAnimation();
+      
+      // Re-heat with a LOWER alpha decay (slower settle) to prevent snapping
+      setTimeout(() => {
+        if (fgRef.current) {
+          // FIX: Cast to 'any' to bypass missing TS definition for d3AlphaDecay
+          (fgRef.current as any).d3AlphaDecay(0.02); 
+          fgRef.current.d3ReheatSimulation();
+          fgRef.current.resumeAnimation();
+        }
+      }, 50);
+    } 
+    else if (currentNodeCount > prevNodeCount.current) {
       fgRef.current.d3ReheatSimulation();
     }
+
+    prevNodeCount.current = currentNodeCount;
+
   }, [nodes.length, edges.length]);
 
-  // Physics Config
+  // Physics Force Configuration
   useEffect(() => {
     if (!fgRef.current) return;
+    
+    // Configure Link Force
     const linkForce = fgRef.current.d3Force('link');
     if (linkForce) {
       linkForce
         .distance((link: any) => (link.distance || 150) * 0.4)
         .strength(1.0);
     }
-    fgRef.current.d3Force('charge')?.strength(-600); 
-    fgRef.current.d3Force('center')?.strength(0.2);
+
+    // Configure Repulsion (Charge)
+    // We increase repulsion slightly to prevent overlap after pruning
+    fgRef.current.d3Force('charge')?.strength(-800); 
+    
+    // Configure Center Force
+    // Weak center force allows graph to spread out, prevents "black hole" collapse
+    fgRef.current.d3Force('center')?.strength(0.1); 
+
   }, [nodes.length, edges.length]); 
 
   const handleNodeClick = useCallback((node: any) => {
@@ -217,11 +232,8 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
     onNodeClick(node.id);
   }, [onNodeClick]);
 
-  // --- HOVER HANDLER ---
   const handleNodeHover = useCallback((node: any | null) => {
     if (node !== hoveredNodeRef.current) {
-      
-      // 1. Reset previous node
       if (hoveredNodeRef.current) {
         const prevObj = hoveredNodeRef.current.__threeObj as THREE.Group;
         if (prevObj) {
@@ -232,8 +244,6 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
           }
         }
       }
-
-      // 2. Scale up new node
       if (node) {
         const obj = node.__threeObj as THREE.Group;
         if (obj) {
@@ -247,7 +257,6 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
       } else {
         if (containerRef.current) containerRef.current.style.cursor = 'move';
       }
-
       hoveredNodeRef.current = node;
     }
   }, []);
@@ -267,6 +276,11 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
         backgroundColor="#02020B"
         showNavInfo={false}
         enableNodeDrag={false}
+        
+        // Critical: Tell the engine how to identify nodes across renders
+        // This ensures positions are preserved when the array is filtered
+        nodeId="id" 
+
         rendererConfig={{
           powerPreference: 'high-performance',
           antialias: graphicsQuality === 'high',
@@ -301,9 +315,6 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
             material.uniforms.startPos.value.copy(start);
             material.uniforms.endPos.value.copy(end);
           }
-          obj.position.set(0, 0, 0);
-          obj.rotation.set(0, 0, 0);
-          obj.scale.set(1, 1, 1);
           return true;
         } : undefined}
 
