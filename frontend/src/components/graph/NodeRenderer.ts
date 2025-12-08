@@ -35,11 +35,15 @@ function getNodeColor(node: NodeRenderData): THREE.Color {
 }
 
 function getNodeSize(node: NodeRenderData): number {
-  // Base size for a leaf node
-  const base = 5; 
+  // --- CHANGE 1: Increased Base Size significantly ---
+  // Was 5, now 12. This makes nodes feel solid and prominent.
+  const base = 12; 
   
-  // Linear-ish scaling capped at ~6x the base size.
-  const multiplier = 1 + (node.importance * 5);
+  // Adjusted scaling: 
+  // We dampen the multiplier slightly since the base is larger.
+  // Importance 0.0 -> 12 (1x)
+  // Importance 1.0 -> 60 (5x)
+  const multiplier = 1 + (node.importance * 4);
   
   let size = base * multiplier;
   if (node.isRoot) size *= 1.3;
@@ -54,7 +58,7 @@ export function createNodeObject(node: NodeRenderData, quality: 'high' | 'low'):
 
   // --- 1. SPHERE GEOMETRY ---
   if (quality === 'high') {
-    const segments = nodeSize > 15 ? 32 : 16;
+    const segments = nodeSize > 25 ? 32 : 16;
     
     // Wireframe
     const wireframe = new THREE.Mesh(
@@ -118,11 +122,13 @@ export function createNodeObject(node: NodeRenderData, quality: 'high' | 'low'):
   const sprite = new THREE.Sprite(spriteMat);
   sprite.renderOrder = 100;
 
-  // Scale: We want the text to fill roughly 90% of the sphere diameter.
-  // Since we use a square texture (1024x1024) to center the text, 
-  // we just scale the sprite to match the node size.
-  const scale = nodeSize * 0.9;
-  sprite.scale.set(scale, scale, 1);
+  // Scale: Fill the larger sphere volume
+  const image = texture.image as HTMLCanvasElement;
+  const aspect = image.width / image.height;
+  
+  // Matches the new node size perfectly
+  const textHeight = nodeSize * 0.7; 
+  sprite.scale.set(textHeight * aspect, textHeight, 1);
   sprite.position.set(0, 0, 0);
 
   group.add(sprite);
@@ -134,7 +140,6 @@ function createTextTexture(label: string, isSelected: boolean): THREE.Texture {
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d')!;
   
-  // Use a square canvas to make centering inside the sphere mathematically simple
   const size = 1024;
   canvas.width = size;
   canvas.height = size; 
@@ -146,7 +151,7 @@ function createTextTexture(label: string, isSelected: boolean): THREE.Texture {
   ctx.textBaseline = 'middle';
 
   // --- Word Wrap Logic ---
-  const maxWidth = size * 0.9; // 90% of canvas width
+  const maxWidth = size * 0.9;
   const words = label.split(' ');
   const lines: string[] = [];
   let currentLine = '';
@@ -165,14 +170,12 @@ function createTextTexture(label: string, isSelected: boolean): THREE.Texture {
   if (currentLine) lines.push(currentLine);
 
   // --- Drawing ---
-  // Center the block of text vertically
   const lineHeight = fontSize * 1.1;
   const totalTextHeight = lines.length * lineHeight;
   const startY = (size - totalTextHeight) / 2 + (lineHeight / 2);
 
-  // Style
   ctx.lineWidth = 12;
-  ctx.strokeStyle = 'rgba(0, 0, 0, 0.9)'; // Dark outline
+  ctx.strokeStyle = 'rgba(0, 0, 0, 0.9)'; 
   ctx.fillStyle = '#FFFFFF';
 
   lines.forEach((line, i) => {
