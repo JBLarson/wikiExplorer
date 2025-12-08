@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { XMarkIcon, HeartIcon, CheckIcon, ClipboardDocumentIcon } from '@heroicons/react/24/outline';
+import { PrivacyModal } from './PrivacyModal';
 
 interface AboutModalProps {
   onClose: () => void;
@@ -7,7 +8,7 @@ interface AboutModalProps {
 
 export function AboutModal({ onClose }: AboutModalProps) {
   const [copiedCurrency, setCopiedCurrency] = useState<string | null>(null);
-
+  const [showPrivacy, setShowPrivacy] = useState(false);
   const handleCopyAddress = (address: string, currency: string) => {
     navigator.clipboard.writeText(address).then(() => {
       setCopiedCurrency(currency);
@@ -188,7 +189,17 @@ export function AboutModal({ onClose }: AboutModalProps) {
               Contact
             </a>
           </div>
+          <button 
+              onClick={() => setShowPrivacy(true)}
+              className="hover:text-white transition-colors"
+            >
+              Privacy
+            </button>
         </div>
+
+      {showPrivacy && (
+        <PrivacyModal onClose={() => setShowPrivacy(false)} />
+      )}
 
       </div>
     </div>
