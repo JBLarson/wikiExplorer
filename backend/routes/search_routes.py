@@ -1,5 +1,6 @@
 from flask import Blueprint, jsonify, request, current_app
 import numpy as np
+import hashlib
 from datetime import datetime
 
 from core.ranking import (
@@ -10,7 +11,7 @@ from core.ranking import (
     is_meta_page
 )
 from core.cross_edges import calculate_global_cross_edges
-from models import db, PublicSearch
+from models import db, PublicSearch, User
 
 search_bp = Blueprint('search', __name__)
 
@@ -18,16 +19,57 @@ def normalize_node_id(title):
     """Convert title to ID format"""
     return title.lower().replace(' ', '_')
 
+def get_client_info():
+    """Extracts IP and User Agent"""
+    ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+    if ip and ',' in ip:
+        ip = ip.split(',')[0].strip()
+    ua = request.headers.get('User-Agent', 'Unknown')
+    return ip, ua
+
+def get_or_create_user():
+    """
+    Identifies a user by a hash of their IP + UserAgent.
+    Updates their last_seen status.
+    """
+    ip, ua = get_client_info()
+    
+    # Create a deterministic fingerprint
+    fingerprint_raw = f"{ip}|{ua}"
+    fingerprint = hashlib.sha256(fingerprint_raw.encode()).hexdigest()
+    
+    user = User.query.filter_by(fingerprint=fingerprint).first()
+    
+    if not user:
+        user = User(
+            ip_address=ip,
+            user_agent=ua,
+            fingerprint=fingerprint,
+            created_at=datetime.utcnow(),
+            last_seen=datetime.utcnow(),
+            total_searches=0,
+            edges_discovered=0
+        )
+        db.session.add(user)
+    else:
+        user.last_seen = datetime.utcnow()
+        # Update IP if it changed (e.g. same browser, new network) - optional logic, 
+        # for now we strictly bind to the fingerprint which includes IP.
+    
+    # We don't commit here; we let the main route commit to bundle transactions
+    return user
+
 @search_bp.route('/related', methods=['POST'])
 def get_related():
     search_engine = current_app.search_engine
     cursor = search_engine.metadata_db.cursor()
     
+    # 1. Identify User
+    current_user = get_or_create_user()
+    
     # Parse JSON body
     data = request.json
     query = data.get('query', '')
-    
-    # Context IDs (can be string titles like 'graph_theory' or integer IDs)
     context_node_ids = data.get('context', [])
     
     k_results = int(data.get('k', search_engine.config.RESULTS_TO_RETURN))
@@ -40,7 +82,7 @@ def get_related():
     if not query:
         return jsonify({"error": "Query is required"}), 400
 
-    # Find query exclusion ID (don't return the node we are searching for)
+    # Find query exclusion ID
     exclude_id = None
     lookup_strategies = [
         ("SELECT article_id FROM articles WHERE title = ?", (query,)),
@@ -149,8 +191,6 @@ def get_related():
         try:
             # OPTIMIZED CONTEXT RESOLUTION (Batch Query)
             context_ids_int = []
-            
-            # Split context into integers (already IDs) and strings (titles to lookup)
             pending_lookups = []
             
             for ctx_id in context_node_ids:
@@ -160,69 +200,58 @@ def get_related():
                     if ctx_id.isdigit():
                         context_ids_int.append(int(ctx_id))
                     else:
-                        # Clean up the ID string to match lookup_title format
-                        # e.g., "Graph_theory" -> "graph theory"
                         clean_title = ctx_id.replace('_', ' ').lower()
                         pending_lookups.append(clean_title)
             
-            # Perform a SINGLE batch lookup for all string titles
             if pending_lookups:
-                print(f"DEBUG: Batch resolving {len(pending_lookups)} context titles...")
                 placeholders = ','.join('?' * len(pending_lookups))
                 sql = f"SELECT article_id FROM articles WHERE lookup_title IN ({placeholders})"
                 cursor.execute(sql, pending_lookups)
                 rows = cursor.fetchall()
                 for row in rows:
                     context_ids_int.append(int(row['article_id']))
-                print(f"DEBUG: Resolved {len(rows)} context IDs from DB.")
 
-            # Filter duplicates
             existing_ids_final = list(set(context_ids_int))
             
-            print(f"Computing optimized cross-edges (New: {len(new_result_ids)}, Context: {len(existing_ids_final)})...")
-            
+            # --- Pass User Context to Calculator ---
             cross_edges = calculate_global_cross_edges(
                 search_engine, 
                 new_node_ids=new_result_ids, 
                 existing_node_ids=existing_ids_final,
-                threshold=0.62
+                threshold=0.62,
+                user_context=current_user  # Passing the user object here
             )
         except Exception as e:
             import traceback
             traceback.print_exc()
             print(f"Error calculating cross edges: {e}")
     
-    # Analytics / History Saving
+    # Update User Stats & Public Search History
     if not is_private:
         try:
-            ip_address = request.headers.get('X-Forwarded-For', request.remote_addr)
-            if ip_address and ',' in ip_address:
-                ip_address = ip_address.split(',')[0].strip()
-            
-            user_agent = request.headers.get('User-Agent', 'Unknown')
-            
-            # Ensure session is clean before starting analytics transaction
-            db.session.rollback() 
-            
+            # Update Public Search Record
             existing = PublicSearch.query.filter_by(search_query=query).first()
             if existing:
                 existing.search_count += 1
                 existing.last_searched_at = datetime.utcnow()
-                existing.last_ip = ip_address
-                db.session.commit()
+                existing.last_ip = current_user.ip_address
             else:
                 new_search = PublicSearch(
                     search_query=query,
                     search_count=1,
-                    last_ip=ip_address,
-                    ip_addresses=[ip_address],
-                    user_agents=[user_agent]
+                    last_ip=current_user.ip_address,
+                    ip_addresses=[current_user.ip_address],
+                    user_agents=[current_user.user_agent]
                 )
                 db.session.add(new_search)
-                db.session.commit()
+            
+            # Update User Search Count
+            current_user.total_searches += 1
+            
+            db.session.commit()
         except Exception as e:
             db.session.rollback()
-            print(f"Failed to save search (non-critical): {e}")
+            print(f"Failed to save analytics: {e}")
     
     final_results = []
     for r in top_results:

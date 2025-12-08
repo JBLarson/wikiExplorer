@@ -2,26 +2,22 @@ import numpy as np
 from sentence_transformers import util
 from models import db, CachedEdge
 
-def calculate_global_cross_edges(search_engine, new_node_ids, existing_node_ids, threshold=0.62, max_edges_per_node=5):
+def calculate_global_cross_edges(search_engine, new_node_ids, existing_node_ids, threshold=0.62, max_edges_per_node=5, user_context=None):
     """
-    Optimized Hybrid Strategy:
+    Optimized Hybrid Strategy with Provenance:
     1. DB Lookup: Check if edges for 'new_node_ids' already exist.
     2. Smart Filter: Remove nodes found in cache from the compute list.
     3. Vector Calc: Compute ONLY for the cache misses.
-    4. Persist: Save new edges.
+    4. Persist: Save new edges with USER ID and MODEL VERSION.
     """
     if not new_node_ids:
         return []
-
-    print(f"DEBUG: Starting calc for {len(new_node_ids)} new nodes...")
 
     # 1. Normalize Inputs
     new_ids_set = set(int(nid) for nid in new_node_ids)
     existing_ids_set = set(int(nid) for nid in existing_node_ids if int(nid) not in new_ids_set)
     
     combined_edges = {} 
-    
-    # Track which nodes have been sufficiently resolved by the cache
     resolved_nodes = set()
 
     # ---------------------------------------------------------
@@ -31,14 +27,12 @@ def calculate_global_cross_edges(search_engine, new_node_ids, existing_node_ids,
         if new_ids_set:
             new_ids_list = list(new_ids_set)
             
-            # Get edges involving NEW nodes
             cached_results = CachedEdge.query.filter(
                 (CachedEdge.source_id.in_(new_ids_list)) | 
                 (CachedEdge.target_id.in_(new_ids_list))
             ).all()
 
             for row in cached_results:
-                # Determine which node is the "other" one
                 if row.source_id in new_ids_set:
                     node_id = row.source_id
                     other_id = row.target_id
@@ -46,18 +40,12 @@ def calculate_global_cross_edges(search_engine, new_node_ids, existing_node_ids,
                     node_id = row.target_id
                     other_id = row.source_id
                 
-                # Check if this edge is relevant to our current graph context
                 is_relevant = (other_id in existing_ids_set or other_id in new_ids_set)
                 
                 if is_relevant:
                     edge_key = tuple(sorted([row.source_id, row.target_id]))
                     combined_edges[edge_key] = row.score
-                    
-                    # Mark this node as having at least one edge, so maybe we don't need to re-compute it
-                    # (You can make this stricter, e.g., requiring > 2 edges)
                     resolved_nodes.add(node_id)
-
-            print(f"DEBUG: Found {len(combined_edges)} edges in DB cache. Resolved {len(resolved_nodes)}/{len(new_ids_set)} nodes.")
             
     except Exception as e:
         print(f"Warning: DB Cache lookup failed: {e}")
@@ -65,13 +53,10 @@ def calculate_global_cross_edges(search_engine, new_node_ids, existing_node_ids,
     # ---------------------------------------------------------
     # STEP B: Compute Missing (Smart Skip)
     # ---------------------------------------------------------
-    # Filter out nodes that were already resolved in the cache
     nodes_to_compute = list(new_ids_set - resolved_nodes)
     
     if search_engine.can_reconstruct and nodes_to_compute:
         try:
-            print(f"DEBUG: Computing vectors for {len(nodes_to_compute)} MISSING nodes...")
-            
             def get_vectors(node_ids):
                 vecs = []
                 valid = []
@@ -88,8 +73,6 @@ def calculate_global_cross_edges(search_engine, new_node_ids, existing_node_ids,
             # Fetch vectors ONLY for cache misses
             new_vecs, new_valid = get_vectors(nodes_to_compute)
             
-            # For context, we still need vectors of (resolved_new + existing) to compare against
-            # But we only iterate the ROWS of the missing nodes
             context_pool = list(existing_ids_set.union(resolved_nodes))
             context_vecs = None
             context_valid = []
@@ -99,10 +82,8 @@ def calculate_global_cross_edges(search_engine, new_node_ids, existing_node_ids,
 
             edges_to_save = []
 
-            # Matrix Processor
             def extract_edges(source_ids, target_ids, matrix):
                 rows, cols = matrix.shape
-                local_new_edges = 0
                 
                 for i in range(rows):
                     source_id = source_ids[i]
@@ -132,26 +113,25 @@ def calculate_global_cross_edges(search_engine, new_node_ids, existing_node_ids,
                                 'target_id': int(t_id),
                                 'score': score_val
                             })
-                            local_new_edges += 1
                         count += 1
-                return local_new_edges
 
-            # 1. Missing vs Missing (Internal)
+            # 1. Missing vs Missing
             if new_vecs is not None and len(new_valid) > 1:
                 mat = util.cos_sim(new_vecs, new_vecs).cpu().numpy()
                 extract_edges(new_valid, new_valid, mat)
 
-            # 2. Missing vs Context (Existing + Resolved)
+            # 2. Missing vs Context
             if new_vecs is not None and context_vecs is not None:
                 mat = util.cos_sim(new_vecs, context_vecs).cpu().numpy()
                 extract_edges(new_valid, context_valid, mat)
 
             # ---------------------------------------------------------
-            # STEP C: Persist
+            # STEP C: Persist with Provenance
             # ---------------------------------------------------------
             if edges_to_save:
-                print(f"DEBUG: Saving {len(edges_to_save)} newly computed edges to DB...")
                 try:
+                    edges_added_count = 0
+                    
                     for edge_data in edges_to_save:
                         exists = CachedEdge.query.filter_by(
                             source_id=edge_data['source_id'], 
@@ -162,22 +142,26 @@ def calculate_global_cross_edges(search_engine, new_node_ids, existing_node_ids,
                             new_edge = CachedEdge(
                                 source_id=edge_data['source_id'],
                                 target_id=edge_data['target_id'],
-                                score=edge_data['score']
+                                score=edge_data['score'],
+                                # Provenance Data
+                                model_version="all-MiniLM-L6-v2",
+                                created_by_user_id=user_context.id if user_context else None
                             )
                             db.session.add(new_edge)
+                            edges_added_count += 1
                     
+                    if user_context and edges_added_count > 0:
+                        user_context.edges_discovered += edges_added_count
+                        
                     db.session.commit()
                 except Exception as e:
                     db.session.rollback()
                     print(f"Error saving edges: {e}")
-            else:
-                pass
+
         except Exception as e:
             import traceback
             traceback.print_exc()
             print(f"Computation error: {e}")
-    else:
-        print("DEBUG: All nodes resolved via cache. Skipping vector computation.")
 
     # ---------------------------------------------------------
     # STEP D: Resolve Titles
@@ -211,7 +195,6 @@ def calculate_global_cross_edges(search_engine, new_node_ids, existing_node_ids,
                     "score": score
                 })
                 
-        print(f"Generated {len(final_output)} total edges")
         return final_output
 
     except Exception as e:
