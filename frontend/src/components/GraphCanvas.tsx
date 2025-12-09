@@ -24,6 +24,9 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
   const containerRef = useRef<HTMLDivElement>(null);
   const isInitializedRef = useRef(false);
   
+  // State for Physics Stability
+  const [alphaDecay, setAlphaDecay] = useState(0.01);
+  
   // Track previous node count to detect pruning events
   const prevNodeCount = useRef(0);
   
@@ -46,7 +49,6 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
   }, [nodes, edges]);
 
   // Transform store data into graph data
-  // CRITICAL: We must Memoize this properly so we don't spam the graph with updates
   const graphData = useMemo(() => {
     return {
       nodes: nodes.map(n => {
@@ -58,8 +60,6 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
           importance: stats?.importance || 0,
           degree: stats?.degree || 0,
           expansionCount: n.expansionCount,
-          // Explicitly pass existing position if available in store (optional, but good practice)
-          // For now, react-force-graph handles reference matching via 'id'
         };
       }),
       links: edges.map(e => ({ 
@@ -159,7 +159,8 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
     };
   }, []); 
 
- useEffect(() => {
+  // --- STABILITY FIX FOR PRUNING ---
+  useEffect(() => {
     if (!fgRef.current) return;
 
     const currentNodeCount = nodes.length;
@@ -176,20 +177,25 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
 
     // 2. Handle Physics State
     if (wasPruned) {
+      // PRUNING DETECTED: 
       // Stop the simulation briefly to let React flush the DOM/State changes
       fgRef.current.pauseAnimation();
       
-      // Re-heat with a LOWER alpha decay (slower settle) to prevent snapping
+      // Update state to COOL DOWN FASTER (0.05) to prevent instability
+      setAlphaDecay(0.05);
+
+      // Re-heat gently
       setTimeout(() => {
         if (fgRef.current) {
-          // FIX: Cast to 'any' to bypass missing TS definition for d3AlphaDecay
-          (fgRef.current as any).d3AlphaDecay(0.02); 
           fgRef.current.d3ReheatSimulation();
           fgRef.current.resumeAnimation();
         }
       }, 50);
     } 
     else if (currentNodeCount > prevNodeCount.current) {
+      // EXPANSION DETECTED:
+      // Allow longer settlement (0.01) for new nodes to find their place
+      setAlphaDecay(0.01);
       fgRef.current.d3ReheatSimulation();
     }
 
@@ -210,11 +216,9 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
     }
 
     // Configure Repulsion (Charge)
-    // We increase repulsion slightly to prevent overlap after pruning
     fgRef.current.d3Force('charge')?.strength(-800); 
     
     // Configure Center Force
-    // Weak center force allows graph to spread out, prevents "black hole" collapse
     fgRef.current.d3Force('center')?.strength(0.1); 
 
   }, [nodes.length, edges.length]); 
@@ -277,9 +281,11 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
         showNavInfo={false}
         enableNodeDrag={false}
         
-        // Critical: Tell the engine how to identify nodes across renders
-        // This ensures positions are preserved when the array is filtered
+        // Critical: Keeps positions stable across renders
         nodeId="id" 
+
+        // Use STATE for dynamic alpha decay
+        d3AlphaDecay={alphaDecay}
 
         rendererConfig={{
           powerPreference: 'high-performance',
@@ -329,7 +335,6 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
         warmupTicks={120}
         cooldownTicks={Infinity}
         cooldownTime={15000}
-        d3AlphaDecay={0.01}
         d3VelocityDecay={0.3}
       />
     </div>
