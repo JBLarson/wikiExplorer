@@ -2,6 +2,7 @@ from flask import Blueprint, jsonify, request, current_app
 import numpy as np
 import hashlib
 from datetime import datetime
+from sqlalchemy.exc import IntegrityError
 
 from core.ranking import (
     calculate_multisignal_score, 
@@ -53,10 +54,7 @@ def get_or_create_user():
         db.session.add(user)
     else:
         user.last_seen = datetime.utcnow()
-        # Update IP if it changed (e.g. same browser, new network) - optional logic, 
-        # for now we strictly bind to the fingerprint which includes IP.
     
-    # We don't commit here; we let the main route commit to bundle transactions
     return user
 
 @search_bp.route('/related', methods=['POST'])
@@ -65,7 +63,18 @@ def get_related():
     cursor = search_engine.metadata_db.cursor()
     
     # 1. Identify User
-    current_user = get_or_create_user()
+    # We use a nested transaction or separate commit for user to ensure we have an ID
+    # even if the analytics part fails/retries.
+    try:
+        current_user = get_or_create_user()
+        db.session.commit()
+    except IntegrityError:
+        db.session.rollback()
+        current_user = get_or_create_user() # Re-fetch, it exists now
+    except Exception as e:
+        db.session.rollback()
+        print(f"User init error: {e}")
+        return jsonify({"error": "Session error"}), 500
     
     # Parse JSON body
     data = request.json
@@ -226,16 +235,24 @@ def get_related():
             traceback.print_exc()
             print(f"Error calculating cross edges: {e}")
     
-    # Update User Stats & Public Search History
+    # --- FIXED ANALYTICS LOGIC (Race Condition Proof) ---
     if not is_private:
         try:
-            # Update Public Search Record
+            # 1. Update User Stats (Safe because user object is already attached to session)
+            current_user.total_searches += 1
+            
+            # 2. Update Public Search (Robust Upsert Logic)
             existing = PublicSearch.query.filter_by(search_query=query).first()
+            
             if existing:
                 existing.search_count += 1
                 existing.last_searched_at = datetime.utcnow()
                 existing.last_ip = current_user.ip_address
+                # Simple append for now, can optimize later if lists get huge
+                if current_user.ip_address not in (existing.ip_addresses or []):
+                    existing.ip_addresses = (existing.ip_addresses or []) + [current_user.ip_address]
             else:
+                # Optimistic Insert
                 new_search = PublicSearch(
                     search_query=query,
                     search_count=1,
@@ -245,10 +262,25 @@ def get_related():
                 )
                 db.session.add(new_search)
             
-            # Update User Search Count
+            db.session.commit()
+
+        except IntegrityError:
+            db.session.rollback()
+            # RACE CONDITION CAUGHT: 
+            # Another request inserted the row while we were processing.
+            # Switch to update mode for the record that now definitely exists.
+            print(f"Race condition resolved for query: {query}")
+            
+            # Re-fetch user to attach to new session
+            current_user = get_or_create_user()
             current_user.total_searches += 1
             
-            db.session.commit()
+            existing = PublicSearch.query.filter_by(search_query=query).first()
+            if existing:
+                existing.search_count += 1
+                existing.last_searched_at = datetime.utcnow()
+                db.session.commit()
+                
         except Exception as e:
             db.session.rollback()
             print(f"Failed to save analytics: {e}")
