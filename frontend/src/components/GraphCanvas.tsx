@@ -113,21 +113,35 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
   // Scene Setup & Animation Loop
   useEffect(() => {
     if (!fgRef.current) return;
+    
+    // --- OPTIMIZATION START ---
+    // Manually clamp Pixel Ratio to 1.5 to save GPU on Retina screens.
+    // Default is usually window.devicePixelRatio (2.0 or 3.0), which destroys performance.
+    const renderer = (fgRef.current as any).renderer();
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+    // --- OPTIMIZATION END ---
+
     if (isInitializedRef.current) return;
     isInitializedRef.current = true;
 
     const scene = fgRef.current.scene();
     const { background, material: bgMaterial } = createAtmosphericBackground();
-    scene.add(background);
+    
+    // Only add if we actually got a mesh back (we won't anymore, but good safety)
+    if (background) {
+        scene.add(background);
+    }
+    
     setupLighting(scene);
     setupFog(scene);
 
     const animate = () => {
       sharedTimeUniform.current.value += 0.012;
-      if (bgMaterial && bgMaterial.uniforms) {
-        bgMaterial.uniforms.time.value = sharedTimeUniform.current.value;
-      }
-
+      
+      // --- FIXED: REMOVED BROKEN SHADER UPDATE ---
+      // The background material is now null (removed for performance), 
+      // so we don't need to try to update its uniforms.
+      
       // Smooth Label Scaling
       if (animatingNodes.current.size > 0) {
         const toRemove: THREE.Object3D[] = [];
@@ -152,9 +166,11 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
 
     return () => {
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
-      scene.remove(background);
-      background.geometry.dispose();
-      bgMaterial.dispose();
+      if (background) {
+          scene.remove(background);
+          background.geometry.dispose();
+          if (bgMaterial) bgMaterial.dispose();
+      }
       isInitializedRef.current = false;
     };
   }, []); 
@@ -289,6 +305,8 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
 
         rendererConfig={{
           powerPreference: 'high-performance',
+          // OPTIMIZATION: Disable antialias if we are in low quality mode OR just generally 
+          // to save performance on high-DPI screens.
           antialias: graphicsQuality === 'high',
           alpha: false,
           precision: graphicsQuality === 'high' ? 'highp' : 'mediump',

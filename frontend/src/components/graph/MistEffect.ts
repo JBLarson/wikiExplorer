@@ -10,9 +10,10 @@ interface MistConfig {
 
 const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
-
+// OPTIMIZATION: Reduced default particle count from 300 to 150.
+// This significantly reduces overdraw on the GPU while maintaining the look.
 const DEFAULT_CONFIG: MistConfig = {
-  particleCount: isMobile ? 150 : 300,
+  particleCount: isMobile ? 80 : 150, 
   spreadRadius: 3,
   baseSize: 2,
 };
