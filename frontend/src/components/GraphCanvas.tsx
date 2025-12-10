@@ -73,18 +73,33 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
 
   useImperativeHandle(ref, () => ({
     focusNode: (nodeId: string) => {
-      if (!fgRef.current) return;
-      const graphNodes = (fgRef.current as any).graphData().nodes as any[];
+      // FIX: Cast to 'any' because strict TypeScript types for ForceGraphMethods 
+      // sometimes omit graphData() even though it exists on the instance.
+      const graphInstance = fgRef.current as any;
+
+      if (!graphInstance || typeof graphInstance.graphData !== 'function') {
+        console.warn('Graph not ready for focusNode');
+        return;
+      }
+
+      const currentData = graphInstance.graphData();
+      if (!currentData || !currentData.nodes) return;
+
+      const graphNodes = currentData.nodes as any[];
       const targetNode = graphNodes.find(n => n.id === nodeId);
       
       if (targetNode && typeof targetNode.x === 'number') {
         const distance = 300; 
         const distRatio = 1 + distance / Math.hypot(targetNode.x, targetNode.y, targetNode.z);
-        fgRef.current.cameraPosition(
-          { x: targetNode.x * distRatio, y: targetNode.y * distRatio, z: targetNode.z * distRatio },
-          targetNode, 
-          1800  
-        );
+        
+        // Ensure cameraPosition exists before calling
+        if (graphInstance.cameraPosition) {
+          graphInstance.cameraPosition(
+            { x: targetNode.x * distRatio, y: targetNode.y * distRatio, z: targetNode.z * distRatio },
+            targetNode, 
+            1800  
+          );
+        }
       }
     }
   }), [graphData]);
@@ -118,7 +133,9 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
     // Manually clamp Pixel Ratio to 1.5 to save GPU on Retina screens.
     // Default is usually window.devicePixelRatio (2.0 or 3.0), which destroys performance.
     const renderer = (fgRef.current as any).renderer();
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+    if (renderer && typeof renderer.setPixelRatio === 'function') {
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+    }
     // --- OPTIMIZATION END ---
 
     if (isInitializedRef.current) return;
@@ -127,7 +144,6 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
     const scene = fgRef.current.scene();
     const { background, material: bgMaterial } = createAtmosphericBackground();
     
-    // Only add if we actually got a mesh back (we won't anymore, but good safety)
     if (background) {
         scene.add(background);
     }
@@ -138,10 +154,11 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
     const animate = () => {
       sharedTimeUniform.current.value += 0.012;
       
-      // --- FIXED: REMOVED BROKEN SHADER UPDATE ---
-      // The background material is now null (removed for performance), 
-      // so we don't need to try to update its uniforms.
-      
+      // Update background shader only if it exists (it likely doesn't now, but safe to keep check)
+      if (bgMaterial && 'uniforms' in bgMaterial) {
+        (bgMaterial as THREE.ShaderMaterial).uniforms.time.value = sharedTimeUniform.current.value;
+      }
+
       // Smooth Label Scaling
       if (animatingNodes.current.size > 0) {
         const toRemove: THREE.Object3D[] = [];
@@ -175,7 +192,7 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
     };
   }, []); 
 
-  // --- STABILITY FIX FOR PRUNING ---
+  // --- STABILITY FIX FOR PRUNING (REVISED) ---
   useEffect(() => {
     if (!fgRef.current) return;
 
@@ -192,25 +209,20 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
     }
 
     // 2. Handle Physics State
+    // FIX: Removing pauseAnimation() as it prevents the renderer from processing 
+    // the removal of nodes, leaving "ghosts" on the screen.
     if (wasPruned) {
       // PRUNING DETECTED: 
-      // Stop the simulation briefly to let React flush the DOM/State changes
-      fgRef.current.pauseAnimation();
-      
-      // Update state to COOL DOWN FASTER (0.05) to prevent instability
+      // We set a higher alpha decay (cooling) so the remaining graph settles quickly
+      // without flinging nodes across the screen.
       setAlphaDecay(0.05);
-
-      // Re-heat gently
-      setTimeout(() => {
-        if (fgRef.current) {
-          fgRef.current.d3ReheatSimulation();
-          fgRef.current.resumeAnimation();
-        }
-      }, 50);
+      
+      // Reheat slightly to allow the graph to adjust to the holes left by pruned nodes
+      fgRef.current.d3ReheatSimulation();
     } 
     else if (currentNodeCount > prevNodeCount.current) {
       // EXPANSION DETECTED:
-      // Allow longer settlement (0.01) for new nodes to find their place
+      // Lower decay allows new nodes more time to find their positions
       setAlphaDecay(0.01);
       fgRef.current.d3ReheatSimulation();
     }
