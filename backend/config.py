@@ -11,15 +11,20 @@ class Config:
     }
     
     # Search weights
-    WEIGHT_SEMANTIC = 0.50
-    WEIGHT_PAGERANK = 0.40
-    WEIGHT_PAGEVIEWS = 0.05
+    WEIGHT_SEMANTIC = 0.30
+    WEIGHT_PAGERANK = 0.50
+    WEIGHT_PAGEVIEWS = 0.15
     WEIGHT_TITLE_MATCH = 0.05
     
     # Search parameters
     CROSS_EDGE_THRESHOLD = 0.65
     EPSILON = 1e-8
-    CANDIDATE_POOL_SIZE = 200
+    
+    # CRITICAL FIX: Increased from 200 to 1000.
+    # This ensures "Linear Algebra" (which might be semantically distant) 
+    # gets fetched into the pool so it can be boosted by its high PageRank.
+    CANDIDATE_POOL_SIZE = 1000
+    
     RESULTS_TO_RETURN = 60
     
     # File paths

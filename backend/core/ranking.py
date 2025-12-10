@@ -7,15 +7,25 @@ config = Config()
 def normalize_pagerank(pagerank_score):
     if pagerank_score is None or pagerank_score <= 0:
         return 0.0
+    # CHANGED: Removed the ** 0.8 smoothing. 
+    # We want a linear or stricter curve to punish low-authority pages more heavily.
     normalized = pagerank_score / 100.0
-    return normalized ** 0.8
+    return normalized
 
 def normalize_pageviews(pageview_count):
     if pageview_count is None or pageview_count < 1:
         return 0.0
-    min_log = 1.0
-    max_log = 7.0
-    score = (math.log10(pageview_count) - min_log) / (max_log - min_log)
+    
+    # Log scale is good, but let's shift the floor.
+    # Articles with < 100 views/month are usually noise.
+    if pageview_count < 100:
+        return 0.1
+
+    min_log = 2.0 # 100 views
+    max_log = 7.0 # 10M views
+    
+    log_val = math.log10(pageview_count)
+    score = (log_val - min_log) / (max_log - min_log)
     return min(1.0, max(0.0, score))
 
 def calculate_title_match_score(title: str, query: str) -> float:
@@ -57,9 +67,9 @@ def calculate_title_match_score(title: str, query: str) -> float:
         base_score *= 0.4
     
     meta_prefixes = ["list of", "index of", "glossary of", "timeline of", 
-                     "outline of", "history of"]
+                     "outline of", "history of", "bibliography of"]
     if any(title_lower.startswith(prefix) for prefix in meta_prefixes):
-        base_score *= 0.3
+        base_score *= 0.1 # Heavily penalize lists
     
     return min(1.0, max(0.0, base_score))
 
@@ -67,7 +77,7 @@ def is_meta_page(title):
     lower = title.lower()
     bad_prefixes = [
         'wikipedia:', 'template:', 'category:', 'portal:', 'help:', 
-        'user:', 'talk:', 'file:', 'mediawiki:'
+        'user:', 'talk:', 'file:', 'mediawiki:', 'draft:'
     ]
     return any(lower.startswith(p) for p in bad_prefixes) or '(disambiguation)' in lower
 
@@ -82,6 +92,7 @@ def calculate_multisignal_score(semantic_similarity, pagerank_score, pageview_co
     pv_norm = max(pv_norm, config.EPSILON)
     title_norm = max(title_norm, config.EPSILON)
     
+    # Geometric Mean
     score = (
         (sem_norm ** config.WEIGHT_SEMANTIC) *
         (pr_norm ** config.WEIGHT_PAGERANK) *
@@ -89,4 +100,10 @@ def calculate_multisignal_score(semantic_similarity, pagerank_score, pageview_co
         (title_norm ** config.WEIGHT_TITLE_MATCH)
     )
     
+    # OBSCURITY PENALTY:
+    # If an article is semantically relevant but has near-zero popularity,
+    # crush its score to prevent "random bullshit" from appearing.
+    if pv_norm < 0.2 and pr_norm < 0.1:
+        score *= 0.5
+
     return score
