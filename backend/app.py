@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import os
+import logging
 
 # --- CRITICAL STABILITY FIX ---
 # Prevent NumPy/PyTorch from using OpenMP threads which causes hangs in Flask
@@ -25,6 +26,11 @@ load_dotenv()
 
 app = Flask(__name__)
 app.config.from_object(Config)
+
+# Disable default Flask/Werkzeug logging to clean up the console
+# so we only see our custom "Fascinating" logs
+log = logging.getLogger('werkzeug')
+log.disabled = True
 
 # Database configuration
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL')

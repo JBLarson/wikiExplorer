@@ -1,6 +1,8 @@
 import numpy as np
+import time
 from sentence_transformers import util
 from models import db, CachedEdge
+from core.console import console
 
 def calculate_global_cross_edges(search_engine, new_node_ids, existing_node_ids, threshold=0.62, max_edges_per_node=5, user_context=None):
     """
@@ -10,6 +12,8 @@ def calculate_global_cross_edges(search_engine, new_node_ids, existing_node_ids,
     3. Vector Calc: Compute ONLY for the cache misses.
     4. Persist: Save new edges with USER ID and MODEL VERSION.
     """
+    start_time = time.time()
+    
     if not new_node_ids:
         return []
 
@@ -19,6 +23,10 @@ def calculate_global_cross_edges(search_engine, new_node_ids, existing_node_ids,
     
     combined_edges = {} 
     resolved_nodes = set()
+
+    # Track stats for logging
+    total_pairs_needed = len(new_ids_set) # Theoretically we need connections for all new nodes
+    cache_hits_count = 0
 
     # ---------------------------------------------------------
     # STEP A: Query Cache
@@ -31,6 +39,8 @@ def calculate_global_cross_edges(search_engine, new_node_ids, existing_node_ids,
                 (CachedEdge.source_id.in_(new_ids_list)) | 
                 (CachedEdge.target_id.in_(new_ids_list))
             ).all()
+
+            cache_hits_count = len(cached_results)
 
             for row in cached_results:
                 if row.source_id in new_ids_set:
@@ -54,7 +64,17 @@ def calculate_global_cross_edges(search_engine, new_node_ids, existing_node_ids,
     # STEP B: Compute Missing (Smart Skip)
     # ---------------------------------------------------------
     nodes_to_compute = list(new_ids_set - resolved_nodes)
+    calc_count = len(nodes_to_compute)
     
+    # LOGGING: The "Fascinating" Part
+    end_prep_time = time.time()
+    console.log_edges(
+        cache_hits=cache_hits_count, 
+        calculated=calc_count, 
+        total_needed=len(new_ids_set),
+        time_taken=end_prep_time - start_time
+    )
+
     if search_engine.can_reconstruct and nodes_to_compute:
         try:
             def get_vectors(node_ids):

@@ -1,6 +1,7 @@
 from flask import Blueprint, jsonify, request, current_app
 import numpy as np
 import hashlib
+import time
 from datetime import datetime
 from sqlalchemy.exc import IntegrityError
 from sentence_transformers import util
@@ -12,6 +13,7 @@ from core.ranking import (
     is_meta_page
 )
 from core.cross_edges import calculate_global_cross_edges
+from core.console import console
 from models import db, PublicSearch, User
 
 search_bp = Blueprint('search', __name__)
@@ -72,6 +74,11 @@ def get_related():
     if not query:
         return jsonify({"error": "Query is required"}), 400
 
+    # LOGGING
+    ip, _ = get_client_info()
+    console.log_search(query, ip, len(context_node_ids))
+    search_start = time.time()
+
     # 3. Resolve Query Vector
     try:
         search_text = query.replace('_', ' ')
@@ -81,6 +88,7 @@ def get_related():
             convert_to_numpy=True
         ).astype(np.float32)
     except Exception as e:
+        console.log_error(str(e))
         return jsonify({"error": str(e)}), 500
 
     # 4. Exclude Exact Match from Results (Case Insensitive Fix)
@@ -109,6 +117,7 @@ def get_related():
             raw_scores[idx_int] = float(distances[0][i])
 
     if not candidate_ids:
+        console.log_error("No candidates found in FAISS")
         return jsonify({"results": [], "cross_edges": []})
 
     # 6. Fetch Metadata
@@ -164,9 +173,9 @@ def get_related():
         # Use the VERIFIED score for ranking, not the FAISS score
         final_score = calculate_multisignal_score(
             semantic_similarity=verified_semantic_score, 
-            pagerank_score=pagerank,
-            pageview_count=pageviews,
-            title=row['title'],
+            pagerank_score=pagerank, 
+            pageview_count=pageviews, 
+            title=row['title'], 
             query=query
         )
         
@@ -185,6 +194,10 @@ def get_related():
             }
             
         results.append(result_obj)
+
+    # LOGGING
+    search_end = time.time()
+    console.log_verification(len(candidate_ids), len(results), search_end - search_start)
 
     # 8. Sort and Slice
     results.sort(key=lambda x: x['score_float'], reverse=True)
@@ -215,7 +228,7 @@ def get_related():
                 user_context=current_user
             )
         except Exception as e:
-            print(f"Cross edge error: {e}")
+            console.log_error(f"Cross edge error: {e}")
 
     # 10. Analytics
     if not is_private:
@@ -241,6 +254,7 @@ def get_related():
     for r in top_results:
         final_output.append({k: v for k, v in r.items() if k not in ['score_float', 'id']})
 
+    console.log_success(f"Sending {len(final_output)} nodes + {len(cross_edges)} edges")
     return jsonify({
         "results": final_output,
         "cross_edges": cross_edges
