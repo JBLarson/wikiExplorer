@@ -11,7 +11,33 @@ export class WikiAPIError extends Error {
   }
 }
 
-export async function fetchArticleSummary(title: string): Promise<WikiArticle> {
+/**
+ * RESOLUTION HELPER:
+ * Wikipedia is case-sensitive (except for the first letter).
+ * "the perennial philosophy" will 404. "The Perennial Philosophy" works.
+ * This hits the OpenSearch API to get the canonical title before fetching data.
+ */
+async function resolveWikipediaTitle(query: string): Promise<string> {
+  try {
+    const searchUrl = `https://en.wikipedia.org/w/api.php?action=opensearch&search=${encodeURIComponent(query)}&limit=1&namespace=0&format=json&origin=*`;
+    const response = await fetch(searchUrl);
+    const data = await response.json();
+    
+    // Opensearch format: [query, [Title1, Title2...], [Desc...], [Url...]]
+    if (data && data[1] && data[1].length > 0) {
+      return data[1][0]; // Return the first match (e.g., "The Perennial Philosophy")
+    }
+    return query; // Fallback to original if no match
+  } catch (e) {
+    console.warn('Title resolution failed, using original:', query);
+    return query;
+  }
+}
+
+export async function fetchArticleSummary(inputTitle: string): Promise<WikiArticle> {
+  // 1. Resolve canonical title (Fixes casing mismatches)
+  const title = await resolveWikipediaTitle(inputTitle);
+  
   const encodedTitle = encodeURIComponent(title.replace(/ /g, '_'));
   
   try {
@@ -41,6 +67,22 @@ export async function fetchArticleSummary(title: string): Promise<WikiArticle> {
   }
 }
 
+// Added for the WikiModal (HTML Fetcher)
+export async function fetchArticleHtml(inputTitle: string): Promise<string> {
+  const title = await resolveWikipediaTitle(inputTitle);
+  const encoded = encodeURIComponent(title.replace(/ /g, '_'));
+  
+  try {
+    // We use the mobile-html endpoint because it's lighter and allows CORS
+    const response = await fetch(`https://en.wikipedia.org/api/rest_v1/page/mobile-html/${encoded}`);
+    if (!response.ok) throw new Error('Failed to load article content');
+    return await response.text();
+  } catch (error) {
+    console.error(error);
+    return '<p style="color:white; padding:20px;">Failed to load article content. Please try opening in a new tab.</p>';
+  }
+}
+
 interface BackendResponse {
   results: Array<{ title: string; score: number }>;
   cross_edges: Array<{ source: string; target: string; score: number }>; 
@@ -49,11 +91,13 @@ interface BackendResponse {
 export async function fetchArticleLinks(
   title: string,
   existingNodeLabels: string[],
-  allGraphNodeIds: string[], // CHANGED: Now accepts IDs instead of titles
+  allGraphNodeIds: string[], 
   k: number = 49,
   isPrivate: boolean = false
 ): Promise<{ links: WikiLink[]; crossEdges: GraphEdge[] }> {
   
+  // Note: We don't resolve title here because the Backend does its own vector search
+  // which is semantic (case-insensitive).
   const query = title.replace(/ /g, '_');
   
   try {
@@ -65,7 +109,7 @@ export async function fetchArticleLinks(
       body: JSON.stringify({
         query: query,
         k: k,
-        context: allGraphNodeIds, // Sending IDs now
+        context: allGraphNodeIds,
         private: isPrivate
       })
     });

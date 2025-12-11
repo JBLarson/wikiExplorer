@@ -83,9 +83,12 @@ def get_related():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-    # 4. Exclude Exact Match from Results
+    # 4. Exclude Exact Match from Results (Case Insensitive Fix)
     exclude_id = -1
-    cursor.execute("SELECT article_id FROM articles WHERE title = ?", (query.replace('_', ' '),))
+    clean_query = query.replace('_', ' ').lower()
+    
+    # Try case-insensitive match for the root node
+    cursor.execute("SELECT article_id FROM articles WHERE LOWER(title) = ?", (clean_query,))
     row = cursor.fetchone()
     if row:
         exclude_id = int(row['article_id'])
@@ -201,7 +204,7 @@ def get_related():
             
             if pending_lookups:
                 ph = ','.join('?' * len(pending_lookups))
-                cursor.execute(f"SELECT article_id FROM articles WHERE lookup_title IN ({ph})", pending_lookups)
+                cursor.execute(f"SELECT article_id FROM articles WHERE LOWER(title) IN ({ph})", pending_lookups)
                 for r in cursor.fetchall(): context_ids_int.append(r['article_id'])
             
             cross_edges = calculate_global_cross_edges(
