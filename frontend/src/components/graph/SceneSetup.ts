@@ -18,7 +18,10 @@ export function createAtmosphericBackground(): {
 /**
  * Adds subtle accent lights that enhance the atmosphere without performance cost
  */
-export function setupLighting(scene: THREE.Scene): void {
+export function setupLighting(scene: THREE.Scene, nodeCount: number): void {
+
+  if (nodeCount === 0) return;
+
   // Key light - purple accent
   const keyLight = new THREE.DirectionalLight(0x8b5cf6, 0.6);
   keyLight.position.set(100, 200, 100);

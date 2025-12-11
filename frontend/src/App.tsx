@@ -1,8 +1,8 @@
 // frontend/src/App.tsx
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, lazy, Suspense } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { XMarkIcon } from '@heroicons/react/24/outline';
-import { GraphCanvas, GraphCanvasRef } from './components/GraphCanvas';
+import { GraphCanvasRef } from './components/GraphCanvas';
 import { NodeOutline } from './components/NodeOutline';
 import { MobileInterface } from './components/MobileInterface';
 import { RefreshButton } from './components/RefreshButton';
@@ -23,6 +23,11 @@ import { useGraphRefresh } from './hooks/useGraphRefresh';
 import { linkCache } from './services/linkCache';
 import weLogo from './assets/wikiExplorer-logo-300.png';
 
+// Lazy load the expensive GraphCanvas component
+const GraphCanvas = lazy(() => import('./components/GraphCanvas').then(module => ({ 
+  default: module.GraphCanvas 
+})));
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -41,6 +46,7 @@ function AppContent() {
   const [error, setError] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showAboutModal, setShowAboutModal] = useState(false);
+  const [graphMounted, setGraphMounted] = useState(false);
 
   // Ref to control graph camera
   const graphCanvasRef = useRef<GraphCanvasRef>(null);
@@ -57,6 +63,13 @@ function AppContent() {
   useEffect(() => {
     checkBackendHealth().then(setBackendOnline);
   }, []);
+
+  // Mount the graph component only after first search
+  useEffect(() => {
+    if (nodes.length > 0 && !graphMounted) {
+      setGraphMounted(true);
+    }
+  }, [nodes.length, graphMounted]);
 
   const handleGraphLoad = useCallback(() => {
     linkCache.clear();
@@ -115,7 +128,6 @@ function AppContent() {
   }, [showStatsModal, showWikiModal, sidebarOpen]);
 
   return (
-    // Root container: Locks viewport size and prevents scrolling
     <div className="fixed inset-0 w-full h-full bg-abyss font-sans text-gray-100 overflow-hidden select-none touch-none">
       
       {/* --- DESKTOP HEADER --- */}
@@ -189,10 +201,6 @@ function AppContent() {
       {/* --- MAIN GRAPH CONTAINER --- */}
       <div className="absolute inset-0 z-0 overflow-hidden">
         
-        {/* FIX: Hide Desktop Sidebar on Mobile 
-            The NodeOutline component takes up 100% height in flow, pushing the graph off-screen on mobile. 
-            We MUST hide this instance on mobile screens. 
-        */}
         <div className="hidden lg:block">
           <NodeOutline 
             isOpen={sidebarOpen}
@@ -201,12 +209,24 @@ function AppContent() {
           />
         </div>
 
-        <GraphCanvas
-          ref={graphCanvasRef}
-          onNodeClick={handleNodeClick}
-          onNodeRightClick={handleNodeRightClick}
-          isSidebarOpen={showWikiModal || sidebarOpen}
-        />
+        {/* Only mount GraphCanvas after first search */}
+        {graphMounted ? (
+          <Suspense fallback={
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="flex flex-col items-center gap-4">
+                <div className="w-12 h-12 border-4 border-brand-primary/30 border-t-brand-primary rounded-full animate-spin" />
+                <span className="text-sm text-gray-400">Initializing 3D engine...</span>
+              </div>
+            </div>
+          }>
+            <GraphCanvas
+              ref={graphCanvasRef}
+              onNodeClick={handleNodeClick}
+              onNodeRightClick={handleNodeRightClick}
+              isSidebarOpen={showWikiModal || sidebarOpen}
+            />
+          </Suspense>
+        ) : null}
         
         {/* Empty State Overlay */}
         {nodes.length === 0 && !isLoading && (
@@ -223,7 +243,6 @@ function AppContent() {
       </div>
 
       {/* --- MOBILE INTERFACE --- */}
-      {/* Handles its own responsive visibility (hidden on lg) */}
       <MobileInterface 
         onSearch={handleSearch}
         isLoading={isLoading}

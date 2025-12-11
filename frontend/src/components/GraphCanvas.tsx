@@ -4,7 +4,7 @@ import { useEffect, useRef, useCallback, useMemo, forwardRef, useImperativeHandl
 import ForceGraph3D, { ForceGraphMethods } from 'react-force-graph-3d';
 import { useGraphStore } from '../stores/graphStore';
 import * as THREE from 'three';
-import { createAtmosphericBackground, setupLighting, setupFog } from './graph/SceneSetup';
+import { setupLighting, setupFog } from './graph/SceneSetup';
 import { createMistConnection } from './graph/MistEffect';
 import { createNodeObject, NodeRenderData } from './graph/NodeRenderer';
 import { calculateGraphStats } from '../services/graphStats';
@@ -23,6 +23,7 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
   const fgRef = useRef<ForceGraphMethods>();
   const containerRef = useRef<HTMLDivElement>(null);
   const isInitializedRef = useRef(false);
+  const lightsInitializedRef = useRef(false);
   
   // State for Physics Stability
   const [alphaDecay, setAlphaDecay] = useState(0.01);
@@ -73,8 +74,6 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
 
   useImperativeHandle(ref, () => ({
     focusNode: (nodeId: string) => {
-      // FIX: Cast to 'any' because strict TypeScript types for ForceGraphMethods 
-      // sometimes omit graphData() even though it exists on the instance.
       const graphInstance = fgRef.current as any;
 
       if (!graphInstance || typeof graphInstance.graphData !== 'function') {
@@ -92,7 +91,6 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
         const distance = 300; 
         const distRatio = 1 + distance / Math.hypot(targetNode.x, targetNode.y, targetNode.z);
         
-        // Ensure cameraPosition exists before calling
         if (graphInstance.cameraPosition) {
           graphInstance.cameraPosition(
             { x: targetNode.x * distRatio, y: targetNode.y * distRatio, z: targetNode.z * distRatio },
@@ -125,39 +123,59 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
     };
   }, []);
 
+  // Lighting: Only initialize when nodes exist
+  useEffect(() => {
+    if (!fgRef.current) return;
+    
+    const scene = fgRef.current.scene();
+    
+    if (nodes.length > 0 && !lightsInitializedRef.current) {
+      // First time we have nodes - add lights
+      setupLighting(scene, nodes.length);
+      setupFog(scene);
+      lightsInitializedRef.current = true;
+    } else if (nodes.length === 0 && lightsInitializedRef.current) {
+      // Graph cleared - remove all lights
+      const lightsToRemove = scene.children.filter(
+        c => c.type === 'DirectionalLight' || c.type === 'AmbientLight'
+      );
+      lightsToRemove.forEach(light => {
+        scene.remove(light);
+        if ((light as any).dispose) (light as any).dispose();
+      });
+      
+      // Remove fog
+      scene.fog = null;
+      
+      lightsInitializedRef.current = false;
+    }
+  }, [nodes.length]);
+
   // Scene Setup & Animation Loop
   useEffect(() => {
     if (!fgRef.current) return;
     
-    // --- OPTIMIZATION START ---
-    // Manually clamp Pixel Ratio to 1.5 to save GPU on Retina screens.
-    // Default is usually window.devicePixelRatio (2.0 or 3.0), which destroys performance.
+    // CRITICAL: Pause animation when empty to save GPU
+    if (nodes.length === 0) {
+      fgRef.current.pauseAnimation();
+      return; // Don't set up animation loop
+    } else {
+      fgRef.current.resumeAnimation();
+    }
+
+    // CRITICAL: Clamp pixel ratio to 1.5 max (saves ~40% GPU on Retina displays)
     const renderer = (fgRef.current as any).renderer();
     if (renderer && typeof renderer.setPixelRatio === 'function') {
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     }
-    // --- OPTIMIZATION END ---
 
     if (isInitializedRef.current) return;
     isInitializedRef.current = true;
 
     const scene = fgRef.current.scene();
-    const { background, material: bgMaterial } = createAtmosphericBackground();
-    
-    if (background) {
-        scene.add(background);
-    }
-    
-    setupLighting(scene);
-    setupFog(scene);
 
     const animate = () => {
       sharedTimeUniform.current.value += 0.012;
-      
-      // Update background shader only if it exists (it likely doesn't now, but safe to keep check)
-      if (bgMaterial && 'uniforms' in bgMaterial) {
-        (bgMaterial as THREE.ShaderMaterial).uniforms.time.value = sharedTimeUniform.current.value;
-      }
 
       // Smooth Label Scaling
       if (animatingNodes.current.size > 0) {
@@ -183,23 +201,18 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
 
     return () => {
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
-      if (background) {
-          scene.remove(background);
-          background.geometry.dispose();
-          if (bgMaterial) bgMaterial.dispose();
-      }
       isInitializedRef.current = false;
     };
-  }, []); 
+  }, [nodes.length]); 
 
-  // --- STABILITY FIX FOR PRUNING (REVISED) ---
+  // Stability Fix for Pruning
   useEffect(() => {
     if (!fgRef.current) return;
 
     const currentNodeCount = nodes.length;
     const wasPruned = currentNodeCount < prevNodeCount.current;
     
-    // 1. Clean up visual artifacts (Ghost Labels)
+    // Clean up visual artifacts (Ghost Labels)
     if (animatingNodes.current.size > 0) {
       const toRemove: THREE.Object3D[] = [];
       animatingNodes.current.forEach(obj => {
@@ -208,21 +221,14 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
       toRemove.forEach(obj => animatingNodes.current.delete(obj));
     }
 
-    // 2. Handle Physics State
-    // FIX: Removing pauseAnimation() as it prevents the renderer from processing 
-    // the removal of nodes, leaving "ghosts" on the screen.
+    // Handle Physics State
     if (wasPruned) {
-      // PRUNING DETECTED: 
-      // We set a higher alpha decay (cooling) so the remaining graph settles quickly
-      // without flinging nodes across the screen.
+      // PRUNING: Higher alpha decay for quick settling
       setAlphaDecay(0.05);
-      
-      // Reheat slightly to allow the graph to adjust to the holes left by pruned nodes
       fgRef.current.d3ReheatSimulation();
     } 
     else if (currentNodeCount > prevNodeCount.current) {
-      // EXPANSION DETECTED:
-      // Lower decay allows new nodes more time to find their positions
+      // EXPANSION: Lower decay for gradual positioning
       setAlphaDecay(0.01);
       fgRef.current.d3ReheatSimulation();
     }
@@ -309,10 +315,8 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
         showNavInfo={false}
         enableNodeDrag={false}
         
-        // Critical: Keeps positions stable across renders
         nodeId="id" 
 
-        // Use STATE for dynamic alpha decay
         d3AlphaDecay={alphaDecay}
 
         rendererConfig={{
@@ -322,7 +326,7 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
           precision: graphicsQuality === 'high' ? 'highp' : 'mediump',
         }}
         nodeLabel="" 
-        nodeResolution={graphicsQuality === 'high' ? 24 : 8}
+        nodeResolution={4}
         nodeOpacity={1}
         
         nodeThreeObject={(node: any) => {
