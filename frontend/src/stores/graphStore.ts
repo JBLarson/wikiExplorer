@@ -18,6 +18,7 @@ interface GraphStore extends GraphState {
   
   // Pruning actions
   pruneSubtree: (nodeId: string) => void;
+  pruneLeafNeighbors: (nodeId: string) => void; // <--- NEW ACTION
   setNewRoot: (nodeId: string) => void;
 
   exportGraphToJSON: (name: string) => void;
@@ -30,34 +31,26 @@ interface GraphStore extends GraphState {
 
 // Helper: Garbage Collector
 // Performs a BFS from the root to find all reachable nodes.
-// SAFELY handles both string IDs and Object references (which D3 creates)
 const runGarbageCollection = (
   rootId: string, 
   allNodes: GraphNode[], 
   allEdges: GraphEdge[]
 ) => {
-  // 0. Index valid nodes for strict checking
   const validNodeIds = new Set(allNodes.map(n => n.id));
-
-  // 1. Build Adjacency List (Directed)
   const adjacency = new Map<string, string[]>();
   
   allEdges.forEach(e => {
-    // Defensive check: D3 might turn e.source into an object { id: "..." }
     const sId = typeof e.source === 'object' ? (e.source as any).id : e.source;
     const tId = typeof e.target === 'object' ? (e.target as any).id : e.target;
 
-    // Strict Filter: Only map edges where both nodes actually exist
     if (validNodeIds.has(sId) && validNodeIds.has(tId)) {
         if (!adjacency.has(sId)) adjacency.set(sId, []);
         adjacency.get(sId)!.push(tId);
     }
   });
 
-  // 2. BFS from Root
   const reachableIds = new Set<string>();
   
-  // Only start if root exists
   if (validNodeIds.has(rootId)) {
       reachableIds.add(rootId);
       const queue = [rootId];
@@ -78,7 +71,6 @@ const runGarbageCollection = (
         }
       }
       
-      // Update depths on nodes
       allNodes.forEach(n => {
           if (reachableIds.has(n.id)) {
               n.depth = newDepths.get(n.id) ?? n.depth;
@@ -86,10 +78,7 @@ const runGarbageCollection = (
       });
   }
 
-  // 3. Filter Nodes
   const finalNodes = allNodes.filter(n => reachableIds.has(n.id));
-
-  // 4. Filter Edges (Strict)
   const finalEdges = allEdges.filter(e => {
     const sId = typeof e.source === 'object' ? (e.source as any).id : e.source;
     const tId = typeof e.target === 'object' ? (e.target as any).id : e.target;
@@ -146,7 +135,7 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
       nodes: state.nodes.map(n => n.id === nodeId ? { ...n, expansionCount: n.expansionCount + 1 } : n)
   })),
 
-  // --- PRUNING LOGIC (FIXED) ---
+  // --- PRUNING LOGIC ---
 
   pruneSubtree: (nodeId: string) => {
     const state = get();
@@ -155,20 +144,13 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
       return;
     }
 
-    // 1. Explicitly remove the target node
     const nodesAfterDelete = state.nodes.filter(n => n.id !== nodeId);
-
-    // 2. Explicitly remove edges connected to the target node
-    // This "severs" the branch so the GC can't accidentally traverse it via a ghost edge.
     const edgesAfterDelete = state.edges.filter(e => {
        const sourceId = typeof e.source === 'object' ? (e.source as any).id : e.source;
        const targetId = typeof e.target === 'object' ? (e.target as any).id : e.target;
        return sourceId !== nodeId && targetId !== nodeId;
     });
 
-    // 3. Run Garbage Collection from the *current* Root
-    // The GC will now find that the children of the pruned node are unreachable
-    // and remove them safely.
     const { finalNodes, finalEdges, reachableIds } = runGarbageCollection(
       state.rootNode, 
       nodesAfterDelete, 
@@ -183,11 +165,59 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
     });
   },
 
+  // NEW: Prunes singularly connected neighbors (dead ends)
+  pruneLeafNeighbors: (nodeId: string) => {
+    set((state) => {
+      // 1. Identify neighbors of the target node
+      const neighborIds = new Set<string>();
+      state.edges.forEach(e => {
+          const s = typeof e.source === 'object' ? (e.source as any).id : e.source;
+          const t = typeof e.target === 'object' ? (e.target as any).id : e.target;
+          if (s === nodeId) neighborIds.add(t);
+          if (t === nodeId) neighborIds.add(s);
+      });
+
+      // 2. Filter neighbors: Keep only those with Degree == 1 (Leaf nodes)
+      const nodesToRemove = new Set<string>();
+      
+      neighborIds.forEach(nId => {
+          // Careful: Don't remove the root if it's the target's neighbor!
+          if (nId === state.rootNode) return;
+
+          let degree = 0;
+          for (const e of state.edges) {
+              const s = typeof e.source === 'object' ? (e.source as any).id : e.source;
+              const t = typeof e.target === 'object' ? (e.target as any).id : e.target;
+              if (s === nId || t === nId) degree++;
+          }
+          
+          if (degree === 1) {
+              nodesToRemove.add(nId);
+          }
+      });
+
+      if (nodesToRemove.size === 0) return state;
+
+      // 3. Remove identified nodes and their singular edges
+      const newNodes = state.nodes.filter(n => !nodesToRemove.has(n.id));
+      const newEdges = state.edges.filter(e => {
+          const s = typeof e.source === 'object' ? (e.source as any).id : e.source;
+          const t = typeof e.target === 'object' ? (e.target as any).id : e.target;
+          return !nodesToRemove.has(s) && !nodesToRemove.has(t);
+      });
+
+      return {
+          nodes: newNodes,
+          edges: newEdges,
+          // Deselect if we just deleted the selected node (unlikely, but safe)
+          selectedNode: (state.selectedNode && nodesToRemove.has(state.selectedNode)) ? null : state.selectedNode
+      };
+    });
+  },
+
   setNewRoot: (newRootId: string) => {
     const state = get();
     
-    // 1. Run Garbage Collection starting from the *new* Root
-    // This naturally discards all ancestors (parents) and unrelated branches
     const { finalNodes, finalEdges, reachableIds } = runGarbageCollection(
       newRootId, 
       state.nodes, 

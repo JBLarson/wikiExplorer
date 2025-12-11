@@ -7,7 +7,8 @@ import {
   ChevronUpIcon, 
   MagnifyingGlassIcon,
   ScissorsIcon,
-  MapPinIcon
+  MapPinIcon,
+  SparklesIcon // <--- NEW ICON
 } from '@heroicons/react/24/outline';
 import { useGraphStore } from '../stores/graphStore';
 
@@ -27,7 +28,7 @@ interface TreeNode {
 }
 
 export function NodeOutline({ isOpen, onToggle, onNodeClick }: NodeOutlineProps) {
-  const { nodes, edges, rootNode, pruneSubtree, setNewRoot } = useGraphStore();
+  const { nodes, edges, rootNode, pruneSubtree, setNewRoot, pruneLeafNeighbors } = useGraphStore();
   const [searchFilter, setSearchFilter] = useState('');
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set([rootNode || '']));
 
@@ -95,6 +96,13 @@ export function NodeOutline({ isOpen, onToggle, onNodeClick }: NodeOutlineProps)
   const handleSetRoot = (nodeId: string, label: string) => {
     if (confirm(`Make "${label}" the new Root? This will remove all parent nodes above it.`)) {
         setNewRoot(nodeId);
+    }
+  };
+
+  // NEW: Prune singular leaves
+  const handleCleanLeaves = (nodeId: string, label: string) => {
+    if (confirm(`Remove all singular (dead-end) nodes connected to "${label}"?`)) {
+        pruneLeafNeighbors(nodeId);
     }
   };
 
@@ -166,28 +174,42 @@ export function NodeOutline({ isOpen, onToggle, onNodeClick }: NodeOutlineProps)
             )}
           </button>
 
-          {/* ACTION BUTTONS (Only show on hover + Not Root) */}
-          {!isRoot && (
-            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity ml-auto">
-                {/* SET ROOT: Matches your "Delete parents" requirement */}
+          {/* ACTION BUTTONS (Only show on hover) */}
+          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity ml-auto">
+              
+              {/* CLEAN DEAD ENDS */}
+              {hasChildren && (
                 <button
-                    onClick={(e) => { e.stopPropagation(); handleSetRoot(node.id, node.label); }}
-                    className="p-1 text-gray-500 hover:text-brand-glow hover:bg-brand-primary/10 rounded transition-all"
-                    title="Make New Root (Removes Parents)"
+                    onClick={(e) => { e.stopPropagation(); handleCleanLeaves(node.id, node.label); }}
+                    className="p-1 text-gray-500 hover:text-emerald-400 hover:bg-emerald-500/10 rounded transition-all"
+                    title="Prune Singular Neighbors (Dead Ends)"
                 >
-                    <MapPinIcon className="w-4 h-4" />
+                    <SparklesIcon className="w-4 h-4" />
                 </button>
+              )}
 
-                {/* PRUNE: Matches "Delete subgraph I don't want" */}
-                <button
-                    onClick={(e) => { e.stopPropagation(); handlePrune(node.id, node.label); }}
-                    className="p-1 text-gray-500 hover:text-red-400 hover:bg-red-500/10 rounded transition-all"
-                    title="Delete Branch"
-                >
-                    <ScissorsIcon className="w-4 h-4" />
-                </button>
-            </div>
-          )}
+              {!isRoot && (
+                <>
+                    {/* SET ROOT */}
+                    <button
+                        onClick={(e) => { e.stopPropagation(); handleSetRoot(node.id, node.label); }}
+                        className="p-1 text-gray-500 hover:text-brand-glow hover:bg-brand-primary/10 rounded transition-all"
+                        title="Make New Root (Removes Parents)"
+                    >
+                        <MapPinIcon className="w-4 h-4" />
+                    </button>
+
+                    {/* PRUNE SUBTREE */}
+                    <button
+                        onClick={(e) => { e.stopPropagation(); handlePrune(node.id, node.label); }}
+                        className="p-1 text-gray-500 hover:text-red-400 hover:bg-red-500/10 rounded transition-all"
+                        title="Delete Branch"
+                    >
+                        <ScissorsIcon className="w-4 h-4" />
+                    </button>
+                </>
+              )}
+          </div>
         </div>
 
         {hasChildren && isExpanded && (
