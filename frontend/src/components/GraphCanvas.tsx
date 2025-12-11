@@ -317,8 +317,6 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
 
         rendererConfig={{
           powerPreference: 'high-performance',
-          // OPTIMIZATION: Disable antialias if we are in low quality mode OR just generally 
-          // to save performance on high-DPI screens.
           antialias: graphicsQuality === 'high',
           alpha: false,
           precision: graphicsQuality === 'high' ? 'highp' : 'mediump',
