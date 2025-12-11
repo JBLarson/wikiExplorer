@@ -137,6 +137,11 @@ export function createNodeObject(node: NodeRenderData, quality: 'high' | 'low'):
   return group;
 }
 
+/**
+ * Creates a texture for the node label.
+ * Includes an auto-scaling algorithm to ensure long words (like "Telecommunications")
+ * shrink to fit the canvas width instead of being clipped.
+ */
 function createTextTexture(label: string, isSelected: boolean): THREE.Texture {
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d')!;
@@ -145,38 +150,74 @@ function createTextTexture(label: string, isSelected: boolean): THREE.Texture {
   canvas.width = size;
   canvas.height = size; 
 
-  // --- CHANGED: Increased base font size slightly (110 -> 130) ---
-  const fontSize = 130;
+  // Initial Configuration
+  let fontSize = 130;
   const fontWeight = isSelected ? '900' : '700';
-  ctx.font = `${fontWeight} ${fontSize}px Inter, sans-serif`;
+  const fontFamily = 'Inter, sans-serif';
+  const maxWidth = size * 0.9; // 90% of canvas width
+
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
 
-  // --- Word Wrap Logic ---
-  const maxWidth = size * 0.9;
-  const words = label.split(' ');
-  const lines: string[] = [];
-  let currentLine = '';
+  const setFont = (s: number) => {
+    ctx.font = `${fontWeight} ${s}px ${fontFamily}`;
+  };
 
-  for (const word of words) {
-    const testLine = currentLine ? `${currentLine} ${word}` : word;
-    const metrics = ctx.measureText(testLine);
-    
-    if (metrics.width > maxWidth && currentLine) {
-      lines.push(currentLine);
-      currentLine = word;
-    } else {
-      currentLine = testLine;
+  // --- Auto-Scaling & Word Wrap Logic ---
+  const words = label.split(' ');
+  let lines: string[] = [];
+
+  // Helper to calculate lines based on current fontSize
+  const calculateLayout = (): number => {
+    lines = [];
+    let currentLine = '';
+    let currentMaxLineWidth = 0;
+
+    for (const word of words) {
+      const testLine = currentLine ? `${currentLine} ${word}` : word;
+      const metrics = ctx.measureText(testLine);
+
+      if (metrics.width > maxWidth && currentLine) {
+        // Push current line
+        lines.push(currentLine);
+        const lineMetrics = ctx.measureText(currentLine);
+        if (lineMetrics.width > currentMaxLineWidth) currentMaxLineWidth = lineMetrics.width;
+        
+        currentLine = word;
+      } else {
+        currentLine = testLine;
+      }
     }
+    if (currentLine) {
+      lines.push(currentLine);
+      const lineMetrics = ctx.measureText(currentLine);
+      if (lineMetrics.width > currentMaxLineWidth) currentMaxLineWidth = lineMetrics.width;
+    }
+    
+    // Also check if any single word in the final lines exceeds max width
+    // (This catches the "Telecommunications" case)
+    return currentMaxLineWidth;
+  };
+
+  // Initial Calculation
+  setFont(fontSize);
+  let computedWidth = calculateLayout();
+
+  // Recursively shrink font if text is too wide
+  // We set a hard floor at 40px to prevent unreadable text
+  while (computedWidth > maxWidth && fontSize > 40) {
+    fontSize -= 5;
+    setFont(fontSize);
+    computedWidth = calculateLayout();
   }
-  if (currentLine) lines.push(currentLine);
 
   // --- Drawing ---
   const lineHeight = fontSize * 1.1;
   const totalTextHeight = lines.length * lineHeight;
   const startY = (size - totalTextHeight) / 2 + (lineHeight / 2);
 
-  ctx.lineWidth = 12;
+  // Scaled outline width
+  ctx.lineWidth = fontSize * 0.1;
   ctx.strokeStyle = 'rgba(0, 0, 0, 0.9)'; 
   ctx.fillStyle = '#FFFFFF';
 
