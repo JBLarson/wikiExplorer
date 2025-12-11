@@ -68,9 +68,9 @@ export function useNodeExpander() {
           return;
         }
 
-        // UPDATED: Slice 20 for display instead of 7
-        linksToAdd = links.slice(0, 20);
-        const linksToCache = links.slice(20);
+        // UPDATED: Slice 12 for display instead of 7
+        linksToAdd = links.slice(0, 12);
+        const linksToCache = links.slice(24);
 
         linkCache.set(nodeId, {
           links: linksToCache,

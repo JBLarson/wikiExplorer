@@ -60,9 +60,9 @@ export function useArticleLoader() {
         isPrivate
       );
 
-      // UPDATED: Standardized to 20 (was 7)
-      const linksToDisplay = links.slice(0, 20);
-      const linksToCache = links.slice(20);
+      // UPDATED: Standardized to 12 (was 7)
+      const linksToDisplay = links.slice(0, 12);
+      const linksToCache = links.slice(24);
 
       linkCache.set(nodeId, {
         links: linksToCache,
