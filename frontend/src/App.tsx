@@ -23,9 +23,13 @@ import { useGraphRefresh } from './hooks/useGraphRefresh';
 import { linkCache } from './services/linkCache';
 import weLogo from './assets/wikiExplorer-logo-300.png';
 
-// Lazy load the expensive GraphCanvas component
-const GraphCanvas = lazy(() => import('./components/GraphCanvas').then(module => ({ 
+// Lazy load rendering engines
+const GraphCanvas3D = lazy(() => import('./components/GraphCanvas').then(module => ({ 
   default: module.GraphCanvas 
+})));
+
+const GraphCanvas2D = lazy(() => import('./components/GraphCanvas2D').then(module => ({ 
+  default: module.GraphCanvas2D 
 })));
 
 const queryClient = new QueryClient({
@@ -38,7 +42,7 @@ const queryClient = new QueryClient({
 });
 
 function AppContent() {
-  const { nodes, edges, setSelectedNode, clearGraph, isLoading } = useGraphStore();
+  const { nodes, edges, setSelectedNode, clearGraph, isLoading, graphicsQuality } = useGraphStore();
   const [showStatsModal, setShowStatsModal] = useState(false);
   const [showWikiModal, setShowWikiModal] = useState(false);
   const [wikiModalData, setWikiModalData] = useState({ url: '', title: '' });
@@ -48,7 +52,7 @@ function AppContent() {
   const [showAboutModal, setShowAboutModal] = useState(false);
   const [graphMounted, setGraphMounted] = useState(false);
 
-  // Ref to control graph camera
+  // Ref to control graph camera (3D only)
   const graphCanvasRef = useRef<GraphCanvasRef>(null);
 
   const { loadArticle } = useArticleLoader();
@@ -90,8 +94,11 @@ function AppContent() {
 
   const handleFindNodeSelect = useCallback((nodeId: string) => {
     setSelectedNode(nodeId);
-    graphCanvasRef.current?.focusNode(nodeId);
-  }, [setSelectedNode]);
+    // Focus only works in 3D mode for now
+    if (graphicsQuality === 'high') {
+      graphCanvasRef.current?.focusNode(nodeId);
+    }
+  }, [setSelectedNode, graphicsQuality]);
 
   const handleNodeRightClick = useCallback((nodeId: string) => {
     const node = nodes.find(n => n.id === nodeId);
@@ -104,17 +111,16 @@ function AppContent() {
     const node = nodes.find(n => n.id === nodeId);
     if (!node) return;
     setSelectedNode(nodeId);
-    graphCanvasRef.current?.focusNode(nodeId);
-  }, [nodes, setSelectedNode]);
+    if (graphicsQuality === 'high') {
+      graphCanvasRef.current?.focusNode(nodeId);
+    }
+  }, [nodes, setSelectedNode, graphicsQuality]);
 
   const handleSearch = useCallback((query: string, isPrivate: boolean = false) => {
-    // 1. Clear existing state
     clearGraph();
     linkCache.clear();
     setError(null);
     setShowWikiModal(false);
-    
-    // 2. Start new load
     loadArticle(query, 0, setError, isPrivate);
   }, [clearGraph, loadArticle]);
 
@@ -212,22 +218,28 @@ function AppContent() {
           />
         </div>
 
-        {/* Only mount GraphCanvas after first search */}
+        {/* Conditional Rendering based on Quality Mode */}
         {graphMounted ? (
           <Suspense fallback={
             <div className="absolute inset-0 flex items-center justify-center">
               <div className="flex flex-col items-center gap-4">
                 <div className="w-12 h-12 border-4 border-brand-primary/30 border-t-brand-primary rounded-full animate-spin" />
-                <span className="text-sm text-gray-400">Initializing 3D engine...</span>
+                <span className="text-sm text-gray-400">Loading graphics engine...</span>
               </div>
             </div>
           }>
-            <GraphCanvas
-              ref={graphCanvasRef}
-              onNodeClick={handleNodeClick}
-              onNodeRightClick={handleNodeRightClick}
-              isSidebarOpen={showWikiModal || sidebarOpen}
-            />
+            {graphicsQuality === 'high' ? (
+              <GraphCanvas3D
+                ref={graphCanvasRef}
+                onNodeClick={handleNodeClick}
+                onNodeRightClick={handleNodeRightClick}
+                isSidebarOpen={showWikiModal || sidebarOpen}
+              />
+            ) : (
+              <GraphCanvas2D
+                onNodeClick={handleNodeClick}
+              />
+            )}
           </Suspense>
         ) : null}
         
