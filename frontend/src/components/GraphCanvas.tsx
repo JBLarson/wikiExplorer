@@ -51,6 +51,12 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
 
   // Transform store data into graph data
   const graphData = useMemo(() => {
+    // CRITICAL FIX: If nodes are empty, strictly return empty arrays
+    // This prevents the engine from trying to process undefined data
+    if (nodes.length === 0) {
+      return { nodes: [], links: [] };
+    }
+
     return {
       nodes: nodes.map(n => {
         const stats = nodeStats.get(n.id);
@@ -155,10 +161,10 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
   useEffect(() => {
     if (!fgRef.current) return;
     
-    // CRITICAL: Pause animation when empty to save GPU
+    // CRITICAL: Pause animation explicitly when empty
     if (nodes.length === 0) {
       fgRef.current.pauseAnimation();
-      return; // Don't set up animation loop
+      return; 
     } else {
       fgRef.current.resumeAnimation();
     }
@@ -171,8 +177,6 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
 
     if (isInitializedRef.current) return;
     isInitializedRef.current = true;
-
-    const scene = fgRef.current.scene();
 
     const animate = () => {
       sharedTimeUniform.current.value += 0.012;
@@ -222,7 +226,6 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
     }
 
     // Handle Physics State
-    // FIXED: Added check for currentNodeCount > 0 to prevent 'tick' error on empty graph
     if (currentNodeCount > 0) {
         if (wasPruned) {
             // PRUNING: Higher alpha decay for quick settling
@@ -242,7 +245,7 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
 
   // Physics Force Configuration
   useEffect(() => {
-    if (!fgRef.current) return;
+    if (!fgRef.current || nodes.length === 0) return;
     
     // Configure Link Force
     const linkForce = fgRef.current.d3Force('link');
@@ -307,6 +310,9 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
     onNodeRightClick(node.id);
   }, [onNodeRightClick]);
 
+  // CRITICAL FIX: If graph is empty, turn off simulation completely
+  const shouldRunSimulation = nodes.length > 0;
+
   return (
     <div ref={containerRef} className="w-full h-full bg-abyss cursor-move overflow-hidden">
       <ForceGraph3D
@@ -321,6 +327,13 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
         nodeId="id" 
 
         d3AlphaDecay={alphaDecay}
+
+        // CRITICAL FIX: Set cooldownTicks to 0 when empty. 
+        // This prevents 'd3' from trying to tick on undefined nodes.
+        warmupTicks={shouldRunSimulation ? 120 : 0}
+        cooldownTicks={shouldRunSimulation ? Infinity : 0}
+        cooldownTime={15000}
+        d3VelocityDecay={0.3}
 
         rendererConfig={{
           powerPreference: 'high-performance',
@@ -351,6 +364,9 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
         } : undefined}
 
         linkPositionUpdate={graphicsQuality === 'high' ? (obj: any, { start, end }: any) => {
+          // CRITICAL FIX: Safety check for mist effect update
+          if (!obj || !start || !end) return false;
+          
           const material = obj.material as THREE.ShaderMaterial;
           if (material && material.uniforms) {
             material.uniforms.startPos.value.copy(start);
@@ -366,11 +382,6 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
         onNodeHover={handleNodeHover}
         onNodeClick={handleNodeClick}
         onNodeRightClick={handleNodeRightClick}
-        
-        warmupTicks={120}
-        cooldownTicks={Infinity}
-        cooldownTime={15000}
-        d3VelocityDecay={0.3}
       />
     </div>
   );

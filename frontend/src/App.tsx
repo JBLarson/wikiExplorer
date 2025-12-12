@@ -108,10 +108,13 @@ function AppContent() {
   }, [nodes, setSelectedNode]);
 
   const handleSearch = useCallback((query: string, isPrivate: boolean = false) => {
+    // 1. Clear existing state
     clearGraph();
     linkCache.clear();
     setError(null);
     setShowWikiModal(false);
+    
+    // 2. Start new load
     loadArticle(query, 0, setError, isPrivate);
   }, [clearGraph, loadArticle]);
 
