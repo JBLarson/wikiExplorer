@@ -26,6 +26,17 @@ body {
   height: 100%;
 }
 
+/* --- SIGMA 2D GRAPH FIX --- */
+/* Ensures the canvas fills the container since we removed the default CSS */
+.sigma-container {
+  width: 100% !important;
+  height: 100% !important;
+  position: absolute;
+  top: 0;
+  left: 0;
+  background-color: #02020B;
+}
+
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
