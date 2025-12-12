@@ -222,15 +222,18 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
     }
 
     // Handle Physics State
-    if (wasPruned) {
-      // PRUNING: Higher alpha decay for quick settling
-      setAlphaDecay(0.05);
-      fgRef.current.d3ReheatSimulation();
-    } 
-    else if (currentNodeCount > prevNodeCount.current) {
-      // EXPANSION: Lower decay for gradual positioning
-      setAlphaDecay(0.01);
-      fgRef.current.d3ReheatSimulation();
+    // FIXED: Added check for currentNodeCount > 0 to prevent 'tick' error on empty graph
+    if (currentNodeCount > 0) {
+        if (wasPruned) {
+            // PRUNING: Higher alpha decay for quick settling
+            setAlphaDecay(0.05);
+            fgRef.current.d3ReheatSimulation();
+        } 
+        else if (currentNodeCount > prevNodeCount.current) {
+            // EXPANSION: Lower decay for gradual positioning
+            setAlphaDecay(0.01);
+            fgRef.current.d3ReheatSimulation();
+        }
     }
 
     prevNodeCount.current = currentNodeCount;
