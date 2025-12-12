@@ -32,8 +32,8 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
   const prevNodeCount = useRef(0);
   
   const [dimensions, setDimensions] = useState({ 
-    width: window.innerWidth, 
-    height: window.innerHeight 
+    width: 0, // Start at 0 to force a strict check before rendering
+    height: 0 
   });
   
   const sharedTimeUniform = useRef({ value: 0 });
@@ -51,8 +51,7 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
 
   // Transform store data into graph data
   const graphData = useMemo(() => {
-    // CRITICAL: Return empty structure if no nodes, but this alone doesn't fix the tick error.
-    // The conditional render below is the real fix.
+    // CRITICAL: Return empty structure if no nodes
     if (nodes.length === 0) {
       return { nodes: [], links: [] };
     }
@@ -84,7 +83,6 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
       const graphInstance = fgRef.current as any;
 
       if (!graphInstance || typeof graphInstance.graphData !== 'function') {
-        // Graph not ready or unmounted, safe to ignore focus request
         return;
       }
 
@@ -109,48 +107,59 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
     }
   }), [graphData]);
 
-  // Handle Resize
+  // STABILIZED RESIZE OBSERVER
+  // Fixes "ResizeObserver loop limit exceeded" and ensures width > 0 before render
   useEffect(() => {
     if (!containerRef.current) return;
+
     const updateDimensions = () => {
       if (containerRef.current) {
         const { width, height } = containerRef.current.getBoundingClientRect();
-        if (width > 0 && height > 0) setDimensions({ width, height });
+        // Only update if dimensions actually changed to prevent loop
+        setDimensions(prev => {
+          if (Math.abs(prev.width - width) < 5 && Math.abs(prev.height - height) < 5) return prev;
+          return { width, height };
+        });
       }
     };
-    const resizeObserver = new ResizeObserver(() => requestAnimationFrame(updateDimensions));
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      // Wrap in requestAnimationFrame to avoid loop limit errors
+      requestAnimationFrame(() => {
+        if (!Array.isArray(entries) || !entries.length) return;
+        updateDimensions();
+      });
+    });
+
     resizeObserver.observe(containerRef.current);
-    window.addEventListener('resize', updateDimensions);
-    window.addEventListener('orientationchange', () => setTimeout(updateDimensions, 200));
+    window.addEventListener('orientationchange', updateDimensions); // Mobile fix
+    
+    // Initial measure
     updateDimensions();
+
     return () => {
       resizeObserver.disconnect();
-      window.removeEventListener('resize', updateDimensions);
       window.removeEventListener('orientationchange', updateDimensions);
     };
   }, []);
 
   // Lighting: Only initialize when nodes exist
   useEffect(() => {
-    // Safety check: if graph is unmounted, fgRef is null
     if (!fgRef.current) return;
     
     const scene = fgRef.current.scene();
     
     if (nodes.length > 0 && !lightsInitializedRef.current) {
-      // First time we have nodes - add lights
       setupLighting(scene, nodes.length);
       setupFog(scene);
       lightsInitializedRef.current = true;
     } else if (nodes.length === 0 && lightsInitializedRef.current) {
-      // Cleanup logic if needed, though unmounting handles most of this
       lightsInitializedRef.current = false;
     }
   }, [nodes.length]);
 
   // Scene Setup & Animation Loop
   useEffect(() => {
-    // If graph is unmounted (nodes=0), stop here.
     if (!fgRef.current || nodes.length === 0) return;
     
     const renderer = (fgRef.current as any).renderer();
@@ -211,12 +220,10 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
     // Handle Physics State
     if (currentNodeCount > 0) {
         if (wasPruned) {
-            // PRUNING: Higher alpha decay for quick settling
             setAlphaDecay(0.05);
             fgRef.current.d3ReheatSimulation();
         } 
         else if (currentNodeCount > prevNodeCount.current) {
-            // EXPANSION: Lower decay for gradual positioning
             setAlphaDecay(0.01);
             fgRef.current.d3ReheatSimulation();
         }
@@ -238,15 +245,14 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
         .strength(1.0);
     }
 
-    // Configure Repulsion (Charge)
     fgRef.current.d3Force('charge')?.strength(-800); 
-    
-    // Configure Center Force
     fgRef.current.d3Force('center')?.strength(0.1); 
 
   }, [nodes.length, edges.length]); 
 
   const handleNodeClick = useCallback((node: any) => {
+    if (!node || typeof node.x !== 'number') return; // Safety Check
+
     const distance = 300;
     const distRatio = 1 + distance / Math.hypot(node.x, node.y, node.z);
     if (fgRef.current) {
@@ -262,6 +268,7 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
   const handleNodeHover = useCallback((node: any | null) => {
     if (node !== hoveredNodeRef.current) {
       if (hoveredNodeRef.current) {
+        // Safe access to ThreeObj
         const prevObj = hoveredNodeRef.current.__threeObj as THREE.Group;
         if (prevObj) {
           const label = prevObj.getObjectByName('label');
@@ -293,14 +300,12 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
     onNodeRightClick(node.id);
   }, [onNodeRightClick]);
 
-  // --- CRITICAL FIX START ---
-  // If there are no nodes, we render a plain container instead of the ForceGraph3D component.
-  // This ensures the physics engine is completely destroyed when the graph is cleared,
-  // preventing the engine from attempting to 'tick' on undefined data during the transition.
-  if (nodes.length === 0) {
+  // --- CRITICAL FIX ---
+  // 1. If no nodes, return plain container (destroys physics engine).
+  // 2. If dimensions are 0 (hidden/initializing), DO NOT render ForceGraph (prevents divide-by-zero projection matrix crash).
+  if (nodes.length === 0 || dimensions.width === 0 || dimensions.height === 0) {
     return <div ref={containerRef} className="w-full h-full bg-abyss" />;
   }
-  // --- CRITICAL FIX END ---
 
   return (
     <div ref={containerRef} className="w-full h-full bg-abyss cursor-move overflow-hidden">
@@ -351,15 +356,19 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
         } : undefined}
 
         linkPositionUpdate={graphicsQuality === 'high' ? (obj: any, { start, end }: any) => {
-          // Safety check: ensure objects exist before updating shaders
-          if (!obj || !start || !end) return false;
+          // STRICT SAFETY CHECK: ensure objects and positions exist before shader update
+          if (!obj || !obj.material || !start || !end) return false;
           
+          // Verify coordinates are not NaN
+          if (isNaN(start.x) || isNaN(end.x)) return false;
+
           const material = obj.material as THREE.ShaderMaterial;
-          if (material && material.uniforms) {
+          if (material && material.uniforms && material.uniforms.startPos && material.uniforms.endPos) {
             material.uniforms.startPos.value.copy(start);
             material.uniforms.endPos.value.copy(end);
+            return true;
           }
-          return true;
+          return false;
         } : undefined}
 
         linkVisibility={true}

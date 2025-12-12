@@ -68,10 +68,11 @@ function AppContent() {
     checkBackendHealth().then(setBackendOnline);
   }, []);
 
-  // Mount the graph component only after first search
+  // Mount the graph component only after first search ensures container has dimensions
   useEffect(() => {
     if (nodes.length > 0 && !graphMounted) {
-      setGraphMounted(true);
+      // Small delay to ensure DOM layout is finalized
+      setTimeout(() => setGraphMounted(true), 50);
     }
   }, [nodes.length, graphMounted]);
 
@@ -218,8 +219,8 @@ function AppContent() {
           />
         </div>
 
-        {/* Conditional Rendering based on Quality Mode */}
-        {graphMounted ? (
+        {/* Conditional Rendering based on Quality Mode and Mount State */}
+        {graphMounted && nodes.length > 0 ? (
           <Suspense fallback={
             <div className="absolute inset-0 flex items-center justify-center">
               <div className="flex flex-col items-center gap-4">
@@ -241,19 +242,19 @@ function AppContent() {
               />
             )}
           </Suspense>
-        ) : null}
-        
-        {/* Empty State Overlay */}
-        {nodes.length === 0 && !isLoading && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none px-4 z-10">
-            <div className="text-center space-y-4">
-              <div className="inline-flex items-center justify-center w-16 h-16 md:w-20 md:h-20 rounded-3xl bg-abyss-surface border border-abyss-highlight shadow-2xl mb-4">
-                <img src={weLogo} alt="" className="w-8 h-8 md:w-10 md:h-10 opacity-80 grayscale" />
+        ) : (
+          /* Empty State Overlay */
+          !isLoading && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none px-4 z-10">
+              <div className="text-center space-y-4">
+                <div className="inline-flex items-center justify-center w-16 h-16 md:w-20 md:h-20 rounded-3xl bg-abyss-surface border border-abyss-highlight shadow-2xl mb-4">
+                  <img src={weLogo} alt="" className="w-8 h-8 md:w-10 md:h-10 opacity-80 grayscale" />
+                </div>
+                <h2 className="text-xl md:text-2xl font-bold text-gray-300">Ready to Explore</h2>
+                <p className="text-sm md:text-base text-gray-500">Search a topic to generate the graph</p>
               </div>
-              <h2 className="text-xl md:text-2xl font-bold text-gray-300">Ready to Explore</h2>
-              <p className="text-sm md:text-base text-gray-500">Search a topic to generate the graph</p>
             </div>
-          </div>
+          )
         )}
       </div>
 
