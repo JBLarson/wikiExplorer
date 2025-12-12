@@ -51,8 +51,8 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
 
   // Transform store data into graph data
   const graphData = useMemo(() => {
-    // CRITICAL FIX: If nodes are empty, strictly return empty arrays
-    // This prevents the engine from trying to process undefined data
+    // CRITICAL: Return empty structure if no nodes, but this alone doesn't fix the tick error.
+    // The conditional render below is the real fix.
     if (nodes.length === 0) {
       return { nodes: [], links: [] };
     }
@@ -80,10 +80,11 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
 
   useImperativeHandle(ref, () => ({
     focusNode: (nodeId: string) => {
+      // Guard: If graph is unmounted (nodes=0), fgRef.current is null
       const graphInstance = fgRef.current as any;
 
       if (!graphInstance || typeof graphInstance.graphData !== 'function') {
-        console.warn('Graph not ready for focusNode');
+        // Graph not ready or unmounted, safe to ignore focus request
         return;
       }
 
@@ -131,6 +132,7 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
 
   // Lighting: Only initialize when nodes exist
   useEffect(() => {
+    // Safety check: if graph is unmounted, fgRef is null
     if (!fgRef.current) return;
     
     const scene = fgRef.current.scene();
@@ -141,35 +143,16 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
       setupFog(scene);
       lightsInitializedRef.current = true;
     } else if (nodes.length === 0 && lightsInitializedRef.current) {
-      // Graph cleared - remove all lights
-      const lightsToRemove = scene.children.filter(
-        c => c.type === 'DirectionalLight' || c.type === 'AmbientLight'
-      );
-      lightsToRemove.forEach(light => {
-        scene.remove(light);
-        if ((light as any).dispose) (light as any).dispose();
-      });
-      
-      // Remove fog
-      scene.fog = null;
-      
+      // Cleanup logic if needed, though unmounting handles most of this
       lightsInitializedRef.current = false;
     }
   }, [nodes.length]);
 
   // Scene Setup & Animation Loop
   useEffect(() => {
-    if (!fgRef.current) return;
+    // If graph is unmounted (nodes=0), stop here.
+    if (!fgRef.current || nodes.length === 0) return;
     
-    // CRITICAL: Pause animation explicitly when empty
-    if (nodes.length === 0) {
-      fgRef.current.pauseAnimation();
-      return; 
-    } else {
-      fgRef.current.resumeAnimation();
-    }
-
-    // CRITICAL: Clamp pixel ratio to 1.5 max (saves ~40% GPU on Retina displays)
     const renderer = (fgRef.current as any).renderer();
     if (renderer && typeof renderer.setPixelRatio === 'function') {
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
@@ -211,7 +194,7 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
 
   // Stability Fix for Pruning
   useEffect(() => {
-    if (!fgRef.current) return;
+    if (!fgRef.current || nodes.length === 0) return;
 
     const currentNodeCount = nodes.length;
     const wasPruned = currentNodeCount < prevNodeCount.current;
@@ -310,8 +293,14 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
     onNodeRightClick(node.id);
   }, [onNodeRightClick]);
 
-  // CRITICAL FIX: If graph is empty, turn off simulation completely
-  const shouldRunSimulation = nodes.length > 0;
+  // --- CRITICAL FIX START ---
+  // If there are no nodes, we render a plain container instead of the ForceGraph3D component.
+  // This ensures the physics engine is completely destroyed when the graph is cleared,
+  // preventing the engine from attempting to 'tick' on undefined data during the transition.
+  if (nodes.length === 0) {
+    return <div ref={containerRef} className="w-full h-full bg-abyss" />;
+  }
+  // --- CRITICAL FIX END ---
 
   return (
     <div ref={containerRef} className="w-full h-full bg-abyss cursor-move overflow-hidden">
@@ -328,10 +317,8 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
 
         d3AlphaDecay={alphaDecay}
 
-        // CRITICAL FIX: Set cooldownTicks to 0 when empty. 
-        // This prevents 'd3' from trying to tick on undefined nodes.
-        warmupTicks={shouldRunSimulation ? 120 : 0}
-        cooldownTicks={shouldRunSimulation ? Infinity : 0}
+        warmupTicks={120}
+        cooldownTicks={Infinity}
         cooldownTime={15000}
         d3VelocityDecay={0.3}
 
@@ -364,7 +351,7 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
         } : undefined}
 
         linkPositionUpdate={graphicsQuality === 'high' ? (obj: any, { start, end }: any) => {
-          // CRITICAL FIX: Safety check for mist effect update
+          // Safety check: ensure objects exist before updating shaders
           if (!obj || !start || !end) return false;
           
           const material = obj.material as THREE.ShaderMaterial;
