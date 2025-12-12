@@ -18,7 +18,7 @@ interface GraphStore extends GraphState {
   
   // Pruning actions
   pruneSubtree: (nodeId: string) => void;
-  pruneLeafNeighbors: (nodeId: string) => void; // <--- NEW ACTION
+  pruneLeafNeighbors: (nodeId: string) => void; 
   setNewRoot: (nodeId: string) => void;
 
   exportGraphToJSON: (name: string) => void;
@@ -107,7 +107,21 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
   
   addEdge: (edge) =>
     set((state) => {
+      // STRICT CHECK: Ensure uniqueness of id OR source-target pair
       if (state.edges.some(e => e.id === edge.id)) return state;
+      
+      const s = typeof edge.source === 'object' ? (edge.source as any).id : edge.source;
+      const t = typeof edge.target === 'object' ? (edge.target as any).id : edge.target;
+      
+      // Double check against existing edges to prevent duplicates with different IDs
+      const exists = state.edges.some(e => {
+          const es = typeof e.source === 'object' ? (e.source as any).id : e.source;
+          const et = typeof e.target === 'object' ? (e.target as any).id : e.target;
+          return (es === s && et === t) || (es === t && et === s);
+      });
+      
+      if (exists) return state;
+
       return { edges: [...state.edges, edge] };
     }),
   
@@ -165,10 +179,8 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
     });
   },
 
-  // NEW: Prunes singularly connected neighbors (dead ends)
   pruneLeafNeighbors: (nodeId: string) => {
     set((state) => {
-      // 1. Identify neighbors of the target node
       const neighborIds = new Set<string>();
       state.edges.forEach(e => {
           const s = typeof e.source === 'object' ? (e.source as any).id : e.source;
@@ -177,11 +189,9 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
           if (t === nodeId) neighborIds.add(s);
       });
 
-      // 2. Filter neighbors: Keep only those with Degree == 1 (Leaf nodes)
       const nodesToRemove = new Set<string>();
       
       neighborIds.forEach(nId => {
-          // Careful: Don't remove the root if it's the target's neighbor!
           if (nId === state.rootNode) return;
 
           let degree = 0;
@@ -198,7 +208,6 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
 
       if (nodesToRemove.size === 0) return state;
 
-      // 3. Remove identified nodes and their singular edges
       const newNodes = state.nodes.filter(n => !nodesToRemove.has(n.id));
       const newEdges = state.edges.filter(e => {
           const s = typeof e.source === 'object' ? (e.source as any).id : e.source;
@@ -209,7 +218,6 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
       return {
           nodes: newNodes,
           edges: newEdges,
-          // Deselect if we just deleted the selected node (unlikely, but safe)
           selectedNode: (state.selectedNode && nodesToRemove.has(state.selectedNode)) ? null : state.selectedNode
       };
     });

@@ -23,21 +23,19 @@ export function RefreshButton({ onRefreshApp, onRefreshEdges }: RefreshButtonPro
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const handleRefreshApp = () => {
+  const handleRefreshApp = (e: React.MouseEvent) => {
+    e.stopPropagation();
     setIsSpinning(true);
     setShowDropdown(false);
     onRefreshApp();
-    
-    // Stop spinning after animation
     setTimeout(() => setIsSpinning(false), 1000);
   };
 
-  const handleRefreshEdges = () => {
+  const handleRefreshEdges = (e: React.MouseEvent) => {
+    e.stopPropagation();
     setIsSpinning(true);
     setShowDropdown(false);
     onRefreshEdges();
-    
-    // Stop spinning after animation
     setTimeout(() => setIsSpinning(false), 1000);
   };
 
@@ -70,10 +68,10 @@ export function RefreshButton({ onRefreshApp, onRefreshEdges }: RefreshButtonPro
             <ArrowPathIcon className="w-5 h-5 text-gray-400 group-hover:text-brand-glow transition-colors flex-shrink-0 mt-0.5" />
             <div>
               <div className="text-sm font-medium text-white group-hover:text-brand-glow transition-colors">
-                Refresh App
+                Hard Refresh
               </div>
               <div className="text-xs text-gray-500 mt-0.5">
-                Clear cache & reload page
+                Clear cache & reload
               </div>
             </div>
           </button>
@@ -101,10 +99,10 @@ export function RefreshButton({ onRefreshApp, onRefreshEdges }: RefreshButtonPro
             </svg>
             <div>
               <div className="text-sm font-medium text-white group-hover:text-brand-glow transition-colors">
-                Refresh Edges
+                Fix Physics/Edges
               </div>
               <div className="text-xs text-gray-500 mt-0.5">
-                Regenerate connections only
+                Reset graph engine
               </div>
             </div>
           </button>
