@@ -1,5 +1,6 @@
 //frontend/src/components/graph2d/GraphDataController.tsx
 
+
 import { useEffect } from 'react';
 import { useLoadGraph, useSigma } from '@react-sigma/core';
 import Graph from 'graphology';
@@ -9,7 +10,7 @@ import { NODE_PALETTE, DEFAULT_NODE_COLOR } from './GraphSettings';
 export const GraphDataController = () => {
   const loadGraph = useLoadGraph();
   const sigma = useSigma();
-  const { nodes, edges } = useGraphStore();
+  const { nodes, edges, rootNode } = useGraphStore();
 
   useEffect(() => {
     // 1. Create fresh graph instance (Single Source of Truth)
@@ -18,27 +19,31 @@ export const GraphDataController = () => {
     // 2. Map Nodes
     nodes.forEach((node) => {
       const depthIndex = Math.min(node.depth, NODE_PALETTE.length - 1);
+      const isRoot = node.id === rootNode; // Identify Root
       
       // Visual Size Calculation
-      // Root is large (25), children are smaller (8), growing slightly with connections
-      const baseSize = node.depth === 0 ? 25 : 8;
-      const size = baseSize + (Math.min(node.expansionCount, 5) * 1.5);
+      // Root is massive (30), children scale based on connectivity
+      const baseSize = isRoot ? 30 : 8;
+      const size = baseSize + (Math.min(node.expansionCount, 10) * 1.5);
 
       graph.addNode(node.id, {
         label: node.label,
         size: size,
         color: NODE_PALETTE[depthIndex] || DEFAULT_NODE_COLOR,
         
-        // --- FAANG-LEVEL FIX: SINGULARITY INITIALIZATION ---
-        // Instead of spawning nodes in a wide cloud (which causes "drift"),
-        // we spawn them in a microscopic ring around (0,0).
-        // This forces the physics engine to explode OUTWARD uniformly,
-        // keeping the graph perfectly centered on screen at all times.
-        x: Math.cos(Math.random() * Math.PI * 2) * 5, 
-        y: Math.sin(Math.random() * Math.PI * 2) * 5,
+        // --- ANCHOR STRATEGY ---
+        // Root Node: Locked strictly to (0,0). It effectively becomes the "Sun".
+        // Other Nodes: Spawn in a micro-ring around it.
+        x: isRoot ? 0 : Math.cos(Math.random() * Math.PI * 2) * 10, 
+        y: isRoot ? 0 : Math.sin(Math.random() * Math.PI * 2) * 10,
+        
+        // This tells the LayoutEngine (ForceAtlas2) to IGNORE physics for the root
+        // keeping it permanently centered.
+        fixed: isRoot, 
         
         // Metadata for reducers
-        nodeType: node.depth === 0 ? 'root' : 'child'
+        nodeType: isRoot ? 'root' : 'child',
+        zIndex: isRoot ? 10 : 1
       });
     });
 
@@ -52,9 +57,8 @@ export const GraphDataController = () => {
           graph.addEdge(sourceId, targetId, {
             color: '#4c1d95', // Brand Dark Purple
             size: 2,
-            type: 'line',
-            // Higher weight for direct parent-child links keeps the tree structured
-            weight: 1 
+            type: 'arrow', // Directional arrows for better UX
+            weight: 1
           });
         }
       }
@@ -64,7 +68,7 @@ export const GraphDataController = () => {
     loadGraph(graph);
     sigma.refresh();
 
-  }, [nodes, edges, loadGraph, sigma]);
+  }, [nodes, edges, rootNode, loadGraph, sigma]);
 
   return null;
 };

@@ -1,6 +1,7 @@
+//frontend/src/components/graph2d/GraphInteractionLayer.tsx
+
 import { useEffect, useState } from 'react';
 import { useRegisterEvents, useSigma } from '@react-sigma/core';
-import { useGraphStore } from '../../stores/graphStore';
 
 interface InteractionProps {
   onNodeClick: (nodeId: string) => void;
@@ -25,12 +26,11 @@ export const GraphInteractionLayer = ({ onNodeClick }: InteractionProps) => {
         document.body.style.cursor = 'pointer';
         setHoveredNode(event.node);
         
-        // Find neighbors efficiently using Sigma's graph instance
         const graph = sigma.getGraph();
         const neighbors = new Set(graph.neighbors(event.node));
         setHoveredNeighbors(neighbors);
       },
-      leaveNode: () => {
+      leaveNode: (event) => {
         document.body.style.cursor = 'default';
         setHoveredNode(null);
         setHoveredNeighbors(new Set());
@@ -38,50 +38,58 @@ export const GraphInteractionLayer = ({ onNodeClick }: InteractionProps) => {
     });
   }, [registerEvents, onNodeClick, sigma]);
 
-  // --- 2. Visual Reducers (The "Juice") ---
+  // --- 2. High-Contrast Reducers ---
   useEffect(() => {
     const graph = sigma.getGraph();
 
-    // Node Reducer: Dim nodes that aren't highlighted
+    // Node Reducer: Focus Mode
     sigma.setSetting('nodeReducer', (node, data) => {
-      if (!hoveredNode) return data; // Default state
+      if (!hoveredNode) return data; // Normal State
 
-      // If this is the hovered node or a neighbor, keep it bright
+      // Highlight Logic
       if (node === hoveredNode || hoveredNeighbors.has(node)) {
         return { 
           ...data, 
           zIndex: 10, 
-          label: data.label // Force show label
+          // Force Label Color to White for maximum contrast
+          labelColor: { color: '#FFF000' },
+          // Ensure label is visible
+          forceLabel: true, 
         };
       }
 
-      // Otherwise, ghost it
+      // Dim Logic (Ghosting)
       return { 
         ...data, 
         zIndex: 1, 
-        color: '#334155', // Dark slate (dimmed)
-        label: '' // Hide label to reduce noise
+        color: '#1E293B', // Dark Slate (barely visible against black bg)
+        label: '',        // Hide label completely to reduce noise
       };
     });
 
-    // Edge Reducer: Hide irrelevant edges
+    // Edge Reducer: Connection Tracing
     sigma.setSetting('edgeReducer', (edge, data) => {
       if (!hoveredNode) return data;
 
       const hasSource = graph.source(edge) === hoveredNode;
       const hasTarget = graph.target(edge) === hoveredNode;
 
+      // If connected to hover target, make it pop
       if (hasSource || hasTarget) {
-        return { ...data, color: '#F59E0B', zIndex: 10, size: 3 }; // Highlight connection
+        return { 
+          ...data, 
+          color: '#F59E0B', // Amber (High Contrast)
+          zIndex: 10, 
+          size: 3 
+        }; 
       }
 
-      return { ...data, color: '#1E293B', zIndex: 1, hidden: true }; // Hide others
+      // Otherwise hide it
+      return { ...data, hidden: true }; 
     });
 
-    // Refresh render
     sigma.refresh();
 
-    // Cleanup
     return () => {
         sigma.setSetting('nodeReducer', null);
         sigma.setSetting('edgeReducer', null);
