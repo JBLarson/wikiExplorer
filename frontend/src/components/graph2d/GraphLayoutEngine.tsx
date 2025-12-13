@@ -6,8 +6,8 @@ import { LAYOUT_SETTINGS } from './GraphSettings';
 export const GraphLayoutEngine = () => {
   const { nodes, edges } = useGraphStore();
   
-  // FIXED: Pass settings to the hook, not the start function
-  const { start, stop, kill } = useWorkerLayoutForceAtlas2({
+  // Initialize the worker hook
+  const { start, stop } = useWorkerLayoutForceAtlas2({
     settings: LAYOUT_SETTINGS.settings
   });
 
@@ -15,8 +15,8 @@ export const GraphLayoutEngine = () => {
     // Safety check: Don't run physics on empty graphs
     if (nodes.length === 0) return;
 
-    // 1. Start Continuous Simulation (Worker Thread)
-    // FIXED: start() takes 0 arguments now
+    // 1. Start Continuous Simulation
+    // This runs whenever nodes/edges update to organize the new structure
     start();
 
     // 2. Auto-Stop Strategy
@@ -27,10 +27,12 @@ export const GraphLayoutEngine = () => {
 
     return () => {
       clearTimeout(timer);
-      // Kill the worker entirely when unmounting to prevent memory leaks
-      kill();
+      // CRITICAL FIX: Only stop() the simulation on updates. 
+      // Never call kill() here, or the worker becomes permanently unusable 
+      // for subsequent renders (like node expansion).
+      stop();
     };
-  }, [nodes.length, edges.length, start, stop, kill]);
+  }, [nodes.length, edges.length, start, stop]);
 
   return null;
 };
