@@ -32,7 +32,7 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
   const prevNodeCount = useRef(0);
   
   const [dimensions, setDimensions] = useState({ 
-    width: 0, // Start at 0 to force a strict check before rendering
+    width: 0, 
     height: 0 
   });
   
@@ -51,7 +51,6 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
 
   // Transform store data into graph data
   const graphData = useMemo(() => {
-    // CRITICAL: Return empty structure if no nodes
     if (nodes.length === 0) {
       return { nodes: [], links: [] };
     }
@@ -79,7 +78,6 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
 
   useImperativeHandle(ref, () => ({
     focusNode: (nodeId: string) => {
-      // Guard: If graph is unmounted (nodes=0), fgRef.current is null
       const graphInstance = fgRef.current as any;
 
       if (!graphInstance || typeof graphInstance.graphData !== 'function') {
@@ -108,14 +106,12 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
   }), [graphData]);
 
   // STABILIZED RESIZE OBSERVER
-  // Fixes "ResizeObserver loop limit exceeded" and ensures width > 0 before render
   useEffect(() => {
     if (!containerRef.current) return;
 
     const updateDimensions = () => {
       if (containerRef.current) {
         const { width, height } = containerRef.current.getBoundingClientRect();
-        // Only update if dimensions actually changed to prevent loop
         setDimensions(prev => {
           if (Math.abs(prev.width - width) < 5 && Math.abs(prev.height - height) < 5) return prev;
           return { width, height };
@@ -124,7 +120,6 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
     };
 
     const resizeObserver = new ResizeObserver((entries) => {
-      // Wrap in requestAnimationFrame to avoid loop limit errors
       requestAnimationFrame(() => {
         if (!Array.isArray(entries) || !entries.length) return;
         updateDimensions();
@@ -132,9 +127,8 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
     });
 
     resizeObserver.observe(containerRef.current);
-    window.addEventListener('orientationchange', updateDimensions); // Mobile fix
+    window.addEventListener('orientationchange', updateDimensions);
     
-    // Initial measure
     updateDimensions();
 
     return () => {
@@ -143,10 +137,9 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
     };
   }, []);
 
-  // Lighting: Only initialize when nodes exist
+  // Lighting
   useEffect(() => {
     if (!fgRef.current) return;
-    
     const scene = fgRef.current.scene();
     
     if (nodes.length > 0 && !lightsInitializedRef.current) {
@@ -158,8 +151,9 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
     }
   }, [nodes.length]);
 
-  // Scene Setup & Animation Loop
+  // --- ANIMATION LOOP (Mist + Labels) ---
   useEffect(() => {
+    // If graph engine isn't ready or empty, don't start loop
     if (!fgRef.current || nodes.length === 0) return;
     
     const renderer = (fgRef.current as any).renderer();
@@ -167,9 +161,7 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     }
 
-    if (isInitializedRef.current) return;
-    isInitializedRef.current = true;
-
+    // Always restart loop on dependency change to ensure it isn't dead
     const animate = () => {
       sharedTimeUniform.current.value += 0.012;
 
@@ -191,24 +183,26 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
         });
         toRemove.forEach(obj => animatingNodes.current.delete(obj));
       }
+      
       animationFrameRef.current = requestAnimationFrame(animate);
     };
+    
+    // Cancel any existing loop before starting a new one
+    if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
     animate();
 
     return () => {
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
-      isInitializedRef.current = false;
     };
-  }, [nodes.length]); 
+  }, [nodes.length, graphicsQuality]); // Re-run if Quality toggles
 
-  // Stability Fix for Pruning
+  // Physics Logic
   useEffect(() => {
     if (!fgRef.current || nodes.length === 0) return;
 
     const currentNodeCount = nodes.length;
     const wasPruned = currentNodeCount < prevNodeCount.current;
     
-    // Clean up visual artifacts (Ghost Labels)
     if (animatingNodes.current.size > 0) {
       const toRemove: THREE.Object3D[] = [];
       animatingNodes.current.forEach(obj => {
@@ -217,7 +211,6 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
       toRemove.forEach(obj => animatingNodes.current.delete(obj));
     }
 
-    // Handle Physics State
     if (currentNodeCount > 0) {
         if (wasPruned) {
             setAlphaDecay(0.05);
@@ -228,31 +221,24 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
             fgRef.current.d3ReheatSimulation();
         }
     }
-
     prevNodeCount.current = currentNodeCount;
-
   }, [nodes.length, edges.length]);
 
-  // Physics Force Configuration
+  // Force Config
   useEffect(() => {
     if (!fgRef.current || nodes.length === 0) return;
-    
-    // Configure Link Force
     const linkForce = fgRef.current.d3Force('link');
     if (linkForce) {
       linkForce
         .distance((link: any) => (link.distance || 150) * 0.4)
         .strength(1.0);
     }
-
     fgRef.current.d3Force('charge')?.strength(-800); 
     fgRef.current.d3Force('center')?.strength(0.1); 
-
   }, [nodes.length, edges.length]); 
 
   const handleNodeClick = useCallback((node: any) => {
-    if (!node || typeof node.x !== 'number') return; // Safety Check
-
+    if (!node || typeof node.x !== 'number') return;
     const distance = 300;
     const distRatio = 1 + distance / Math.hypot(node.x, node.y, node.z);
     if (fgRef.current) {
@@ -268,7 +254,6 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
   const handleNodeHover = useCallback((node: any | null) => {
     if (node !== hoveredNodeRef.current) {
       if (hoveredNodeRef.current) {
-        // Safe access to ThreeObj
         const prevObj = hoveredNodeRef.current.__threeObj as THREE.Group;
         if (prevObj) {
           const label = prevObj.getObjectByName('label');
@@ -300,9 +285,7 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
     onNodeRightClick(node.id);
   }, [onNodeRightClick]);
 
-  // --- CRITICAL FIX ---
-  // 1. If no nodes, return plain container (destroys physics engine).
-  // 2. If dimensions are 0 (hidden/initializing), DO NOT render ForceGraph (prevents divide-by-zero projection matrix crash).
+  // Strict Mount Checks
   if (nodes.length === 0 || dimensions.width === 0 || dimensions.height === 0) {
     return <div ref={containerRef} className="w-full h-full bg-abyss" />;
   }
@@ -319,9 +302,7 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
         enableNodeDrag={false}
         
         nodeId="id" 
-
         d3AlphaDecay={alphaDecay}
-
         warmupTicks={120}
         cooldownTicks={Infinity}
         cooldownTime={15000}
@@ -351,15 +332,13 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
           return createNodeObject(renderData, graphicsQuality);
         }}
 
+        // Re-inject sharedTimeUniform to create new material instances on mount
         linkThreeObject={graphicsQuality === 'high' ? () => {
           return createMistConnection(sharedTimeUniform.current);
         } : undefined}
 
         linkPositionUpdate={graphicsQuality === 'high' ? (obj: any, { start, end }: any) => {
-          // STRICT SAFETY CHECK: ensure objects and positions exist before shader update
           if (!obj || !obj.material || !start || !end) return false;
-          
-          // Verify coordinates are not NaN
           if (isNaN(start.x) || isNaN(end.x)) return false;
 
           const material = obj.material as THREE.ShaderMaterial;

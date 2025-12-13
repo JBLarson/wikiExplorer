@@ -1,6 +1,5 @@
 //frontend/src/components/graph2d/GraphDataController.tsx
 
-
 import { useEffect } from 'react';
 import { useLoadGraph, useSigma } from '@react-sigma/core';
 import Graph from 'graphology';
@@ -13,41 +12,47 @@ export const GraphDataController = () => {
   const { nodes, edges, rootNode } = useGraphStore();
 
   useEffect(() => {
-    // 1. Create fresh graph instance (Single Source of Truth)
+    // --- FAANG-LEVEL HYGIENE ---
+    // We do not trust the state. We rebuild the graph structure 
+    // strictly from the semantic data, ignoring any previous 
+    // rendering artifacts (x, y, type, color) that might be in the store.
+    
     const graph = new Graph({ multi: false, type: 'directed' });
 
-    // 2. Map Nodes
+    // 1. Sanitize & Map Nodes
     nodes.forEach((node) => {
       const depthIndex = Math.min(node.depth, NODE_PALETTE.length - 1);
-      const isRoot = node.id === rootNode; // Identify Root
+      const isRoot = node.id === rootNode;
       
-      // Visual Size Calculation
-      // Root is massive (30), children scale based on connectivity
       const baseSize = isRoot ? 30 : 8;
       const size = baseSize + (Math.min(node.expansionCount, 10) * 1.5);
 
-      graph.addNode(node.id, {
+      // Create a clean attribute object
+      const attributes = {
         label: node.label,
         size: size,
         color: NODE_PALETTE[depthIndex] || DEFAULT_NODE_COLOR,
         
-        // --- ANCHOR STRATEGY ---
-        // Root Node: Locked strictly to (0,0). It effectively becomes the "Sun".
-        // Other Nodes: Spawn in a micro-ring around it.
+        // Anchor Strategy:
+        // We reset positions to the singularity point.
+        // This effectively "wipes" the physics cache.
         x: isRoot ? 0 : Math.cos(Math.random() * Math.PI * 2) * 10, 
         y: isRoot ? 0 : Math.sin(Math.random() * Math.PI * 2) * 10,
         
-        // This tells the LayoutEngine (ForceAtlas2) to IGNORE physics for the root
-        // keeping it permanently centered.
-        fixed: isRoot, 
-        
-        // Metadata for reducers
+        // Logical metadata only
+        fixed: isRoot,
         nodeType: isRoot ? 'root' : 'child',
-        zIndex: isRoot ? 10 : 1
-      });
+        zIndex: isRoot ? 10 : 1,
+        
+        // CRITICAL: We DO NOT pass 'type'.
+        // This forces Sigma to use its internal default renderer.
+        // If 'type': 'circle' exists in your JSON, it dies here.
+      };
+
+      graph.addNode(node.id, attributes);
     });
 
-    // 3. Map Edges
+    // 2. Map Edges
     edges.forEach((edge) => {
       const sourceId = typeof edge.source === 'object' ? (edge.source as any).id : edge.source;
       const targetId = typeof edge.target === 'object' ? (edge.target as any).id : edge.target;
@@ -55,16 +60,18 @@ export const GraphDataController = () => {
       if (graph.hasNode(sourceId) && graph.hasNode(targetId)) {
         if (!graph.hasEdge(sourceId, targetId)) {
           graph.addEdge(sourceId, targetId, {
-            color: '#4c1d95', // Brand Dark Purple
+            color: '#4c1d95',
             size: 2,
-            type: 'arrow', // Directional arrows for better UX
+            type: 'arrow', // "arrow" is safe in standard Sigma
             weight: 1
           });
         }
       }
     });
 
-    // 4. Hydrate & Refresh
+    // 3. Nuclear Option: Wipe & Reload
+    // This tells Sigma to discard everything and accept the new graph
+    // as the absolute truth.
     loadGraph(graph);
     sigma.refresh();
 

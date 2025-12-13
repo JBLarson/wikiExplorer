@@ -1,4 +1,7 @@
 // frontend/src/App.tsx
+
+
+// frontend/src/App.tsx
 import { useState, useCallback, useEffect, useRef, lazy, Suspense } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { XMarkIcon } from '@heroicons/react/24/outline';
@@ -23,7 +26,6 @@ import { useGraphRefresh } from './hooks/useGraphRefresh';
 import { linkCache } from './services/linkCache';
 import weLogo from './assets/wikiExplorer-logo-300.png';
 
-// Lazy load rendering engines
 const GraphCanvas3D = lazy(() => import('./components/GraphCanvas').then(module => ({ 
   default: module.GraphCanvas 
 })));
@@ -52,7 +54,6 @@ function AppContent() {
   const [showAboutModal, setShowAboutModal] = useState(false);
   const [graphMounted, setGraphMounted] = useState(false);
 
-  // Ref to control graph camera (3D only)
   const graphCanvasRef = useRef<GraphCanvasRef>(null);
 
   const { loadArticle } = useArticleLoader();
@@ -68,10 +69,8 @@ function AppContent() {
     checkBackendHealth().then(setBackendOnline);
   }, []);
 
-  // Mount the graph component only after first search ensures container has dimensions
   useEffect(() => {
     if (nodes.length > 0 && !graphMounted) {
-      // Small delay to ensure DOM layout is finalized
       setTimeout(() => setGraphMounted(true), 50);
     }
   }, [nodes.length, graphMounted]);
@@ -95,7 +94,6 @@ function AppContent() {
 
   const handleFindNodeSelect = useCallback((nodeId: string) => {
     setSelectedNode(nodeId);
-    // Focus only works in 3D mode for now
     if (graphicsQuality === 'high') {
       graphCanvasRef.current?.focusNode(nodeId);
     }
@@ -140,7 +138,7 @@ function AppContent() {
   return (
     <div className="fixed inset-0 w-full h-full bg-abyss font-sans text-gray-100 overflow-hidden select-none touch-none">
       
-      {/* --- DESKTOP HEADER --- */}
+      {/* HEADER */}
       <div className="hidden lg:block absolute top-0 left-0 w-full z-50 pointer-events-none">
         <div className="flex items-center justify-between p-6 bg-gradient-to-b from-abyss via-abyss/80 to-transparent">
           
@@ -196,7 +194,7 @@ function AppContent() {
         </div>
       </div>
 
-      {/* --- ERROR TOAST --- */}
+      {/* ERROR */}
       {error && (
         <div className="absolute top-24 md:top-28 left-1/2 -translate-x-1/2 z-[60] animate-slide-up pointer-events-auto max-w-[90vw]">
           <div className="flex items-center gap-3 px-4 py-3 bg-red-950/90 backdrop-blur border border-red-500/30 rounded-xl shadow-2xl">
@@ -208,7 +206,7 @@ function AppContent() {
         </div>
       )}
 
-      {/* --- MAIN GRAPH CONTAINER --- */}
+      {/* GRAPH CONTAINER */}
       <div className="absolute inset-0 z-0 overflow-hidden">
         
         <div className="hidden lg:block">
@@ -219,7 +217,6 @@ function AppContent() {
           />
         </div>
 
-        {/* Conditional Rendering based on Quality Mode and Mount State */}
         {graphMounted && nodes.length > 0 ? (
           <Suspense fallback={
             <div className="absolute inset-0 flex items-center justify-center">
@@ -230,7 +227,10 @@ function AppContent() {
             </div>
           }>
             {graphicsQuality === 'high' ? (
+              // CRITICAL FIX: Adding 'key' forces React to completely destroy/recreate 
+              // the component when quality changes, clearing all WebGL state.
               <GraphCanvas3D
+                key="3d-engine"
                 ref={graphCanvasRef}
                 onNodeClick={handleNodeClick}
                 onNodeRightClick={handleNodeRightClick}
@@ -238,12 +238,12 @@ function AppContent() {
               />
             ) : (
               <GraphCanvas2D
+                key="2d-engine"
                 onNodeClick={handleNodeClick}
               />
             )}
           </Suspense>
         ) : (
-          /* Empty State Overlay */
           !isLoading && (
             <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none px-4 z-10">
               <div className="text-center space-y-4">
@@ -258,7 +258,7 @@ function AppContent() {
         )}
       </div>
 
-      {/* --- MOBILE INTERFACE --- */}
+      {/* MOBILE UI */}
       <MobileInterface 
         onSearch={handleSearch}
         isLoading={isLoading}
@@ -270,7 +270,7 @@ function AppContent() {
         onNodeClick={handleStatsNodeClick}
       />
 
-      {/* --- MODALS --- */}
+      {/* MODALS */}
       {showStatsModal && (
         <GraphStatsModal
           nodes={nodes}
