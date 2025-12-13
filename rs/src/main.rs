@@ -206,75 +206,60 @@ async fn search(
 // MAIN
 // ============================================================================
 
+use axum::{
+    routing::{get, post},
+    Router,
+    extract::State,
+};
+use std::sync::Arc;
+use tower_http::cors::CorsLayer;
+use tracing::info;
+use sqlx::SqlitePool;
+
+mod config;
+mod state;
+mod utils;
+mod models;
+mod search;
+mod routes;
+
+use crate::state::AppState;
+use crate::config::get_config;
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Initialize logging
     tracing_subscriber::fmt()
         .with_target(false)
         .compact()
         .init();
 
-    let separator = "=".repeat(80);
-    info!("{}", separator);
-    info!("WIKIPEDIA SEMANTIC SEARCH API (Rust Edition)");
-    info!("{}", separator);
+    let config = get_config(); // Initialize config
+    info!("Starting WikiExplorer Backend...");
 
-    // Load environment
-    dotenvy::dotenv().ok();
-    
-    // Determine paths based on OS
-    let (index_path, metadata_path) = if cfg!(target_os = "macos") {
-        (
-            "../data/index.faiss".to_string(),
-            "../data/metadata.db".to_string(),
-        )
-    } else {
-        (
-            "/opt/we/data/index.faiss".to_string(),
-            "/opt/we/data/metadata.db".to_string(),
-        )
-    };
-    
-    info!("Loading metadata database from: {}", metadata_path);
-    
-    // Connect to SQLite
-    let db_pool = SqlitePool::connect(&format!("sqlite:{}", metadata_path))
-        .await?;
-    
-    info!("✓ Database connected");
-    
-    // Get total vectors (we'll load FAISS properly next)
-    let total_vectors: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM articles")
-        .fetch_one(&db_pool)
-        .await?;
-    
-    info!("✓ Found {} articles in metadata", total_vectors.0);
-    
-    // Application state
-    let state = Arc::new(AppState {
-        index_path: index_path.clone(),
-        metadata_path: metadata_path.clone(),
-        db_pool,
-        config: Config::default(),
-        total_vectors: total_vectors.0,
-    });
+    // Database
+    info!("Connecting to database at: {}", config.metadata_path);
+    let db_pool = SqlitePool::connect(&format!("sqlite:{}", config.metadata_path)).await?;
 
-    // Build router
+    // State (loads Model + Index)
+    let state = AppState::new(db_pool).await?;
+    let state_arc = Arc::new(state);
+
+    // Router
     let app = Router::new()
         .route("/api/health", get(health_check))
-        .route("/api/related", post(search))
+        .route("/api/related", post(routes::search::search_handler))
         .layer(CorsLayer::permissive())
-        .with_state(state);
+        .with_state(state_arc);
 
-    // Start server
-    let addr = "0.0.0.0:5002";  // Changed to 5002 so it doesn't conflict with Flask
-    info!("");
-    info!("{}", separator);
-    info!("🚀 API READY - Server listening on {}", addr);
-    info!("{}", separator);
+    let addr = "0.0.0.0:5002";
+    info!("🚀 Server listening on {}", addr);
     
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;
 
     Ok(())
+}
+
+async fn health_check() -> &'static str {
+    "OK"
 }

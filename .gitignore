@@ -34,5 +34,6 @@ we_server.txt
 
 deploy.sh
 
-wikiexplorer-rust/target/*
+rs/target
+backend/wikiexplorer-rust/
 wikiexplorer-rust/
