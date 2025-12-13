@@ -1,7 +1,10 @@
+// frontend/src/services/graphCalculations.ts
+
 export function calculateEdgeDistance(score: number | undefined): number {
-  if (typeof score !== 'number') return 150;
+  if (typeof score !== 'number') return 200; // Base distance increased
   const normalizedScore = Math.min(score / 25, 1.0);
-  return 40 + (1 - normalizedScore) * 260;
+  // Range: 50 (Very close/high score) to 300 (Far/low score)
+  return 50 + (1 - normalizedScore) * 300;
 }
 
 export function calculateEdgeStrength(score: number | undefined): number {

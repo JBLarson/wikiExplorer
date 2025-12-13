@@ -217,6 +217,7 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
             fgRef.current.d3ReheatSimulation();
         } 
         else if (currentNodeCount > prevNodeCount.current) {
+            // Aggressive Reheat on Load/Add to prevent pancake effect
             setAlphaDecay(0.01);
             fgRef.current.d3ReheatSimulation();
         }
@@ -230,10 +231,13 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
     const linkForce = fgRef.current.d3Force('link');
     if (linkForce) {
       linkForce
-        .distance((link: any) => (link.distance || 150) * 0.4)
+        // CHANGED: Increased distance multiplier from 0.4 to 0.8
+        // This spreads the nodes out significantly more in 3D space
+        .distance((link: any) => (link.distance || 150) * 0.8)
         .strength(1.0);
     }
-    fgRef.current.d3Force('charge')?.strength(-800); 
+    // CHANGED: Increased repulsion from -800 to -1200 to prevent clumping
+    fgRef.current.d3Force('charge')?.strength(-1200); 
     fgRef.current.d3Force('center')?.strength(0.1); 
   }, [nodes.length, edges.length]); 
 
@@ -306,7 +310,7 @@ export const GraphCanvas = forwardRef<GraphCanvasRef, GraphCanvasProps>(({ onNod
         warmupTicks={120}
         cooldownTicks={Infinity}
         cooldownTime={15000}
-        d3VelocityDecay={0.3}
+        d3VelocityDecay={0.4} // Smoother velocity decay
 
         rendererConfig={{
           powerPreference: 'high-performance',

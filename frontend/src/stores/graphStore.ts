@@ -1,4 +1,6 @@
 // frontend/src/stores/graphStore.ts
+
+// frontend/src/stores/graphStore.ts
 import { create } from 'zustand';
 import type { GraphState, GraphNode, GraphEdge, SavedGraph } from '../types';
 
@@ -283,8 +285,17 @@ export const useGraphStore = create<GraphStore>((set, get) => ({
     if (!savedGraph.version || savedGraph.version.split('.')[0] !== '1') throw new Error('Incompatible graph version');
     if (!savedGraph.nodes || !savedGraph.edges) throw new Error('Invalid graph data');
     
+    // --- SANITIZATION FOR PHYSICS ENGINE ---
+    // We strictly remove x, y, z, vx, vy, vz coordinates.
+    // This allows the 3D engine (or 2D engine) to calculate fresh positions based on 
+    // its own physics scale, preventing "pancake" artifacts when loading 2D saves into 3D.
+    const cleanNodes = savedGraph.nodes.map(n => {
+        const { id, label, data, depth, expansionCount } = n;
+        return { id, label, data, depth, expansionCount };
+    });
+
     set({
-      nodes: savedGraph.nodes,
+      nodes: cleanNodes,
       edges: savedGraph.edges,
       rootNode: savedGraph.rootNode,
       selectedNode: null,
