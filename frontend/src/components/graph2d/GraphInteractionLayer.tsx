@@ -42,28 +42,39 @@ export const GraphInteractionLayer = ({ onNodeClick }: InteractionProps) => {
   useEffect(() => {
     const graph = sigma.getGraph();
 
-    // Node Reducer: Focus Mode
+    // Node Reducer: Focus Mode with Context-Aware Text Color
     sigma.setSetting('nodeReducer', (node, data) => {
       if (!hoveredNode) return data; // Normal State
 
-      // Highlight Logic
-      if (node === hoveredNode || hoveredNeighbors.has(node)) {
+      // CASE A: The Node Under the Cursor (White Card Background)
+      if (node === hoveredNode) {
+        return {
+          ...data,
+          zIndex: 10,
+          // CRITICAL FIX: Pass a string hex code, NOT an object.
+          // This creates #000000 Text on the White Hover Card.
+          labelColor: "#000000",
+          forceLabel: true,
+        };
+      }
+
+      // CASE B: The Neighboring Nodes (Dark Canvas Background)
+      if (hoveredNeighbors.has(node)) {
         return { 
           ...data, 
-          zIndex: 10, 
-          // Force Label Color to White for maximum contrast
-          labelColor: { color: '#FFF000' },
-          // Ensure label is visible
+          zIndex: 9, 
+          // Keep these White to pop against the dark void
+          labelColor: "#FFFFFF",
           forceLabel: true, 
         };
       }
 
-      // Dim Logic (Ghosting)
+      // CASE C: Background Noise
       return { 
         ...data, 
         zIndex: 1, 
-        color: '#1E293B', // Dark Slate (barely visible against black bg)
-        label: '',        // Hide label completely to reduce noise
+        color: '#1E293B', // Dark Slate (faded)
+        label: '',        // Hide label completely
       };
     });
 
@@ -74,7 +85,6 @@ export const GraphInteractionLayer = ({ onNodeClick }: InteractionProps) => {
       const hasSource = graph.source(edge) === hoveredNode;
       const hasTarget = graph.target(edge) === hoveredNode;
 
-      // If connected to hover target, make it pop
       if (hasSource || hasTarget) {
         return { 
           ...data, 
@@ -84,8 +94,7 @@ export const GraphInteractionLayer = ({ onNodeClick }: InteractionProps) => {
         }; 
       }
 
-      // Otherwise hide it
-      return { ...data, hidden: true }; 
+      return { ...data, hidden: true, color: '#000000', size: 0 }; 
     });
 
     sigma.refresh();

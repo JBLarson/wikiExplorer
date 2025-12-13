@@ -7,12 +7,10 @@ export const SIGMA_SETTINGS: Partial<Settings> = {
   // --- High-Performance Rendering ---
   renderLabels: true,
   
-  // CRITICAL FIX: Lower threshold so labels appear when zoomed out
+  // Lower threshold so labels appear when zoomed out
   labelRenderedSizeThreshold: 5, 
   
-  // Label Density Optimization:
   // "0.5" allows more labels to overlap slightly before being hidden.
-  // This makes the graph feel "denser" with information at a distance.
   labelDensity: 0.5,
   labelGridCellSize: 60,
   
@@ -22,20 +20,22 @@ export const SIGMA_SETTINGS: Partial<Settings> = {
   
   // --- Visual Polish ---
   defaultNodeType: "circle",
-  defaultEdgeType: "arrow", // Arrows show flow better than lines
-  labelColor: { color: "#E2E8F0" }, // Light Slate (High Contrast on Dark)
+  defaultEdgeType: "arrow", 
+  
+  // CRITICAL FIX: 
+  // We tell Sigma to look for a node attribute named "labelColor".
+  // If the node doesn't have one, it falls back to the "color" property defined here (#E2E8F0).
+  labelColor: { attribute: "labelColor", color: "#E2E8F0" },
 };
 
 export const LAYOUT_SETTINGS = {
   settings: {
     // --- Anchor-Based Physics ---
-    // Since Root is fixed at (0,0), we can use stronger gravity 
-    // to pull everything into a tight, readable orbit without drift.
     gravity: 1,               
-    scalingRatio: 25,         // Good spacing between clusters
+    scalingRatio: 25,         
     barnesHutOptimize: true,  
     barnesHutTheta: 0.6,
-    slowDown: 10,             // High friction = Zero Jitter
+    slowDown: 10,             
     outboundAttractionDistribution: true, 
     edgeWeightInfluence: 0,
     strongGravityMode: false  
@@ -43,7 +43,7 @@ export const LAYOUT_SETTINGS = {
   iterations: 100, 
 };
 
-// High Contrast Palette (Tested against #02020B background)
+// High Contrast Palette
 export const NODE_PALETTE = [
   '#F59E0B', // Root (Amber-500)
   '#D946EF', // L1 (Fuchsia-500)
