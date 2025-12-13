@@ -1,7 +1,4 @@
 // frontend/src/App.tsx
-
-
-// frontend/src/App.tsx
 import { useState, useCallback, useEffect, useRef, lazy, Suspense } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { XMarkIcon } from '@heroicons/react/24/outline';
@@ -227,8 +224,6 @@ function AppContent() {
             </div>
           }>
             {graphicsQuality === 'high' ? (
-              // CRITICAL FIX: Adding 'key' forces React to completely destroy/recreate 
-              // the component when quality changes, clearing all WebGL state.
               <GraphCanvas3D
                 key="3d-engine"
                 ref={graphCanvasRef}
@@ -240,6 +235,7 @@ function AppContent() {
               <GraphCanvas2D
                 key="2d-engine"
                 onNodeClick={handleNodeClick}
+                onNodeRightClick={handleNodeRightClick} // WIRED UP HERE
               />
             )}
           </Suspense>

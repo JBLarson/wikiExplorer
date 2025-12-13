@@ -11,9 +11,10 @@ import { SIGMA_SETTINGS } from './graph2d/GraphSettings';
 
 interface GraphCanvas2DProps {
   onNodeClick: (nodeId: string) => void;
+  onNodeRightClick: (nodeId: string) => void; // NEW PROP
 }
 
-export const GraphCanvas2D = memo(({ onNodeClick }: GraphCanvas2DProps) => {
+export const GraphCanvas2D = memo(({ onNodeClick, onNodeRightClick }: GraphCanvas2DProps) => {
   return (
     <div 
       className="w-full h-full bg-abyss relative overflow-hidden"
@@ -26,7 +27,10 @@ export const GraphCanvas2D = memo(({ onNodeClick }: GraphCanvas2DProps) => {
       >
         <GraphDataController />
         <GraphLayoutEngine />
-        <GraphInteractionLayer onNodeClick={onNodeClick} />
+        <GraphInteractionLayer 
+          onNodeClick={onNodeClick} 
+          onNodeRightClick={onNodeRightClick} 
+        />
         <GraphCameraController />
       </SigmaContainer>
     </div>

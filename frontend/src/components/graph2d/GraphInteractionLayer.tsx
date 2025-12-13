@@ -5,9 +5,10 @@ import { useRegisterEvents, useSigma } from '@react-sigma/core';
 
 interface InteractionProps {
   onNodeClick: (nodeId: string) => void;
+  onNodeRightClick: (nodeId: string) => void; // NEW PROP
 }
 
-export const GraphInteractionLayer = ({ onNodeClick }: InteractionProps) => {
+export const GraphInteractionLayer = ({ onNodeClick, onNodeRightClick }: InteractionProps) => {
   const registerEvents = useRegisterEvents();
   const sigma = useSigma();
   const [hoveredNode, setHoveredNode] = useState<string | null>(null);
@@ -16,12 +17,24 @@ export const GraphInteractionLayer = ({ onNodeClick }: InteractionProps) => {
   // --- 1. Event Listeners ---
   useEffect(() => {
     registerEvents({
+      // Left Click
       clickNode: (event) => {
         if (event.event && event.event.original) {
           event.event.original.stopPropagation();
         }
         onNodeClick(event.node);
       },
+      
+      // Right Click (Context Menu)
+      rightClickNode: (event) => {
+        if (event.event && event.event.original) {
+          event.event.original.preventDefault(); // Stop browser menu
+          event.event.original.stopPropagation();
+        }
+        onNodeRightClick(event.node);
+      },
+
+      // Hover Effects
       enterNode: (event) => {
         document.body.style.cursor = 'pointer';
         setHoveredNode(event.node);
@@ -36,9 +49,9 @@ export const GraphInteractionLayer = ({ onNodeClick }: InteractionProps) => {
         setHoveredNeighbors(new Set());
       },
     });
-  }, [registerEvents, onNodeClick, sigma]);
+  }, [registerEvents, onNodeClick, onNodeRightClick, sigma]);
 
-  // --- 2. High-Contrast Reducers ---
+  // --- 2. High-Contrast Reducers (Visual Polish) ---
   useEffect(() => {
     const graph = sigma.getGraph();
 
@@ -51,9 +64,7 @@ export const GraphInteractionLayer = ({ onNodeClick }: InteractionProps) => {
         return {
           ...data,
           zIndex: 10,
-          // CRITICAL FIX: Pass a string hex code, NOT an object.
-          // This creates #000000 Text on the White Hover Card.
-          labelColor: "#000000",
+          labelColor: "#000000", // Black text on White box
           forceLabel: true,
         };
       }
@@ -63,8 +74,7 @@ export const GraphInteractionLayer = ({ onNodeClick }: InteractionProps) => {
         return { 
           ...data, 
           zIndex: 9, 
-          // Keep these White to pop against the dark void
-          labelColor: "#FFFFFF",
+          labelColor: "#FFFFFF", // White text on Dark bg
           forceLabel: true, 
         };
       }
